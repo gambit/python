@@ -51,7 +51,7 @@
     (define default-venv-path #f)
     (define venv-path #f)
     ;; Determine CPython interpreter to use.
-    (define version "3.7")
+    (define version (getenv "GAMBIT_PYTHON_VERSION" "3.10"))
     (define python (string-append "python" version))
     ;; Its alias in the virtualenv
     (define python3 #f)
