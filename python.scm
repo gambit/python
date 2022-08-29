@@ -2615,7 +2615,7 @@ end-of-c-declare
   (let ((scheme-fpc-state (get-scheme-fpc-state! (current-thread))))
     (mutex-lock! (vector-ref scheme-fpc-state 3))
     (let ((python-message
-           ((c-lambda (scheme-object) PyObject* "sfpc_recv")
+           ((c-lambda (scheme-object) PyObject*!own "sfpc_recv")
             scheme-fpc-state)))
       python-message)))
 
