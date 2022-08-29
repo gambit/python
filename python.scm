@@ -122,7 +122,7 @@
 typedef PyObject *PyObjectPtr;
 
 PyTypeObject *Fraction_cls = NULL;
-PyTypeObject *___SchemeObject_cls = NULL;
+PyTypeObject *_SchemeObject_cls = NULL;
 
 #define DEBUG_LOWLEVEL_
 #define DEBUG_PYTHON_REFCNT_
@@ -463,7 +463,7 @@ ___SCMOBJ PYOBJECTPTR_to_SCMOBJ(PyObjectPtr src, ___SCMOBJ *dst, int arg_num) {
 #endif
 
 #ifdef ___C_TAG_PyObject_2a__2f_SchemeObject
-  if (Py_TYPE(src) == ___SchemeObject_cls)
+  if (Py_TYPE(src) == _SchemeObject_cls)
     tag = ___C_TAG_PyObject_2a__2f_SchemeObject;
   else
 #endif
@@ -674,7 +674,7 @@ ___SCMOBJ SCMOBJ_to_PYOBJECTPTR" _SUBTYPE "(___SCMOBJ src, void **dst, int arg_n
 (define-subtype-converters "method"    "PyMethod_Check(src)")
 (define-subtype-converters "method_descriptor"  "!strcmp(src->ob_type->tp_name, \"method_descriptor\")")
 (define-subtype-converters "cell"      "PyCell_Check(src)")
-(define-subtype-converters "SchemeObject" "Py_TYPE(src) == ___SchemeObject_cls")
+(define-subtype-converters "SchemeObject" "Py_TYPE(src) == _SchemeObject_cls")
 
 ;;;----------------------------------------------------------------------------
 
@@ -1392,15 +1392,11 @@ if (ptr == NULL) {
 
   ___EXT(___set_data_rc)(ptr, src);
 
-  // Create an instance of a ___SchemeObject class
+  // Create an instance of a _SchemeObject class
   PyObject* obj_capsule = PyCapsule_New(ptr, NULL, NULL);
 
-//  printf(\"REFCNT(%p)=%ld\\n\", obj_capsule, Py_REFCNT(obj_capsule));
-
   // TODO: check for heap overflow
-  dst = PyObject_CallFunctionObjArgs(___CAST(PyObjectPtr,___SchemeObject_cls), obj_capsule, NULL);
-
-//  printf(\"REFCNT(%p)=%ld\\n\", obj_capsule, Py_REFCNT(obj_capsule));
+  dst = PyObject_CallFunctionObjArgs(___CAST(PyObjectPtr,_SchemeObject_cls), obj_capsule, NULL);
 
   if (dst == NULL) {
     ___EXT(___release_rc)(ptr);
@@ -1423,7 +1419,7 @@ ___BOOL result;
 
 /* call to GIL_ACQUIRE() not needed here */
 
-result = (Py_TYPE(src) == ___SchemeObject_cls);
+result = (Py_TYPE(src) == _SchemeObject_cls);
 
 /* call to GIL_RELEASE() not needed here */
 
@@ -2236,9 +2232,7 @@ static PyObject *pfpc_free(PyObject *self, PyObject *args) {
 
   void *ptr = PyCapsule_GetPointer(capsule, NULL);
 
-//  printf("pfpc_free REFCNT(%p)=%ld\n", capsule, Py_REFCNT(capsule));
-
-//  PYOBJECTPTR_DECREF(capsule, "pfpc_free");
+  PYOBJECTPTR_DECREF(capsule, "pfpc_free");
 
 #ifdef DEBUG_LOWLEVEL
   printf("pfpc_free calling ___release_rc(%p)\n", ptr);
@@ -2277,29 +2271,29 @@ PyMODINIT_FUNC PyInit_pfpc(void) {
 
 const char *python_code = "\
 \n\
-___threading = __import__(\"threading\")\n\
-___pfpc = __import__(\"pfpc\")\n\
-___fractions = __import__(\"fractions\")\n\
-___empty_dict = dict()\n\
+_threading = __import__(\"threading\")\n\
+_pfpc = __import__(\"pfpc\")\n\
+_fractions = __import__(\"fractions\")\n\
+_empty_dict = dict()\n\
 \n\
-def ___pfpc_send(message):\n\
-  fpc_state = ___threading.current_thread()._fpc_state\n\
-  ___pfpc.send(fpc_state, message) # send message to Scheme\n\
+def _pfpc_send(message):\n\
+  fpc_state = _threading.current_thread()._fpc_state\n\
+  _pfpc.send(fpc_state, message) # send message to Scheme\n\
 \n\
-def ___pfpc_recv():\n\
-  fpc_state = ___threading.current_thread()._fpc_state\n\
-  message = ___pfpc.recv(fpc_state) # receive message from Scheme\n\
+def _pfpc_recv():\n\
+  fpc_state = _threading.current_thread()._fpc_state\n\
+  message = _pfpc.recv(fpc_state) # receive message from Scheme\n\
   return message\n\
 \n\
-def ___pfpc_loop():\n\
+def _pfpc_loop():\n\
   while True:\n\
-    message = ___pfpc_recv()\n\
+    message = _pfpc_recv()\n\
     if message[0] == 'call':\n\
       try:\n\
         if message[3]:\n\
           kwargs = dict(zip(message[3], message[4]))\n\
         else:\n\
-          kwargs = ___empty_dict\n\
+          kwargs = _empty_dict\n\
         result = message[1](*message[2], **kwargs)\n\
         message = ('return', result)\n\
       except BaseException as exc:\n\
@@ -2314,32 +2308,31 @@ def ___pfpc_loop():\n\
       message = ('return', lambda e: exec(e, globals()))\n\
     else:\n\
       message = ('error',)\n\
-    ___pfpc_send(message)\n\
+    _pfpc_send(message)\n\
 \n\
-def ___pfpc_call(fn, args, kw_keys, kw_vals):\n\
+def _pfpc_call(fn, args, kw_keys, kw_vals):\n\
   message = ('call', fn, args, kw_keys, kw_vals)\n\
-  ___pfpc_send(message)\n\
-  return ___pfpc_loop()\n\
+  _pfpc_send(message)\n\
+  return _pfpc_loop()\n\
 \n\
-def ___pfpc_start(fpc_state):\n\
-  ___threading.current_thread()._fpc_state = fpc_state\n\
-  ___pfpc_loop()\n\
+def _pfpc_start(fpc_state):\n\
+  _threading.current_thread()._fpc_state = fpc_state\n\
+  _pfpc_loop()\n\
 \n\
-def ___SchemeProcedure(scheme_proc):\n\
+def _SchemeProcedure(scheme_proc):\n\
   def fun(*args, **kwargs):\n\
     kw_keys = list(kwargs.keys())\n\
     kw_vals = list(kwargs.values())\n\
-    return ___pfpc_call(scheme_proc, args, kw_keys, kw_vals)\n\
+    return _pfpc_call(scheme_proc, args, kw_keys, kw_vals)\n\
   return foreign(fun)\n\
 \n\
 foreign = lambda x: (lambda:x).__closure__[0]\n\
 \n\
-class ___SchemeObject(BaseException):\n\
+class _SchemeObject(BaseException):\n\
   def __init__(self, obj_capsule):\n\
     self.obj_capsule = obj_capsule\n\
   def __del__(self):\n\
-    ___pfpc = __import__(\"pfpc\") # TODO: remove this hack!\n\
-    ___pfpc.free(self.obj_capsule)\n\
+    _pfpc.free(self.obj_capsule)\n\
 \n\
 def set_global(k, v):\n\
   globals()[k] = v\n\
@@ -2360,10 +2353,10 @@ ___BOOL initialize(void) {
   PyRun_SimpleString(python_code);
 
   PyObject *__main__ = PyImport_AddModule("__main__");
-  PyObject *___fractions = PyObject_GetAttrString(__main__, "___fractions");
+  PyObject *_fractions = PyObject_GetAttrString(__main__, "_fractions");
 
-  ___SchemeObject_cls = ___CAST(PyTypeObject*, PyObject_GetAttrString(__main__, "___SchemeObject"));
-  Fraction_cls = ___CAST(PyTypeObject*, PyObject_GetAttrString(___fractions, "Fraction"));
+  _SchemeObject_cls = ___CAST(PyTypeObject*, PyObject_GetAttrString(__main__, "_SchemeObject"));
+  Fraction_cls = ___CAST(PyTypeObject*, PyObject_GetAttrString(_fractions, "Fraction"));
 
   PyEval_SaveThread();
 
@@ -2385,9 +2378,9 @@ void python_thread_main(___thread *self) {
   GIL_ACQUIRE();
 
   PyObject *m = PyImport_AddModule("__main__");
-  PyObject *v = PyObject_GetAttrString(m, "___pfpc_start");
+  PyObject *v = PyObject_GetAttrString(m, "_pfpc_start");
 
-  PyObject_CallOneArg(v, python_fpc_state->capsule); /* call ___pfpc_start */
+  PyObject_CallOneArg(v, python_fpc_state->capsule); /* call _pfpc_start */
 
   GIL_RELEASE();
 }
@@ -2732,7 +2725,7 @@ end-of-c-declare
 
 (define python-eval (sfpc-send-recv (vector "get-eval")))
 (define python-exec (sfpc-send-recv (vector "get-exec")))
-(define python-SchemeProcedure (python-eval "___SchemeProcedure"))
+(define python-SchemeProcedure (python-eval "_SchemeProcedure"))
 
 (python-exec
  (string-append "import sys; sys.path.append('"
