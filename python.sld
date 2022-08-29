@@ -7,8 +7,8 @@
 
 ;;;============================================================================
 
-(define-library (python)
-  (import (gambit))
+(define-library (github.com/udem-dlteam python)
+  (import (gambit) (_six python))
 
   (export
 
