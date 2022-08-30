@@ -6,6 +6,7 @@
 
 ;;;============================================================================
 
+(import (_six python))
 (import (github.com/udem-dlteam python))
 (import _test)
 
@@ -112,4 +113,4 @@
 (test-assert \dict([tuple(["a", 11]),tuple(["b", 22])])==`(list->table '(("a" . 11) ("b" . 22))))
 
 ;;;============================================================================
-(shell-command (string-append "kill -9 " (number->string (##os-getpid))))
+;(shell-command (string-append "kill -9 " (number->string (##os-getpid))))
