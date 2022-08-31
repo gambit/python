@@ -2152,6 +2152,308 @@ typedef struct fpc_state_struct
 
 
 
+const char *python_code = "\
+\n\
+_threading = __import__(\"threading\")\n\
+_pfpc = __import__(\"pfpc\")\n\
+_fractions = __import__(\"fractions\")\n\
+#_time = __import__(\"time\")\n\
+_empty_dict = dict()\n\
+\n\
+def _pfpc_get_fpc_state():\n\
+  ct = _threading.current_thread()\n\
+  if not hasattr(ct, \"_fpc_state\"):\n\
+    ct._fpc_state = _pfpc.start_buddy()\n\
+    _pfpc_loop() # wait for buddy thread to be started\n\
+  return ct._fpc_state\n\
+\n\
+def _pfpc_send(message):\n\
+  fpc_state = _pfpc_get_fpc_state()\n\
+  _pfpc.send(fpc_state, message) # send message to Scheme\n\
+\n\
+def _pfpc_recv():\n\
+  fpc_state = _pfpc_get_fpc_state()\n\
+  message = _pfpc.recv(fpc_state) # receive message from Scheme\n\
+  return message\n\
+\n\
+def _pfpc_loop():\n\
+  while True:\n\
+    message = _pfpc_recv()\n\
+#    print(\"pfpc_loop message =\", repr(message))\n\
+    if message[0] == 'call':\n\
+      try:\n\
+        if message[3]:\n\
+          kwargs = dict(zip(message[3], message[4]))\n\
+        else:\n\
+          kwargs = _empty_dict\n\
+        result = message[1](*message[2], **kwargs)\n\
+        message = ('return', result)\n\
+      except BaseException as exc:\n\
+        message = ('raise', exc, repr(exc))\n\
+    elif message[0] == 'return':\n\
+      return message[1]\n\
+    elif message[0] == 'raise':\n\
+      raise message[1]\n\
+    elif message[0] == 'get-eval':\n\
+      message = ('return', lambda e: eval(e, globals()))\n\
+    elif message[0] == 'get-exec':\n\
+      message = ('return', lambda e: exec(e, globals()))\n\
+    else:\n\
+      message = ('error',)\n\
+    _pfpc_send(message)\n\
+#  _time.sleep(0.5)\n\
+\n\
+def _pfpc_call(fn, args, kw_keys, kw_vals):\n\
+  message = ('call', fn, args, kw_keys, kw_vals)\n\
+  _pfpc_send(message)\n\
+  return _pfpc_loop()\n\
+\n\
+def _pfpc_start(fpc_state):\n\
+  _threading.current_thread()._fpc_state = fpc_state\n\
+  _pfpc_loop()\n\
+\n\
+def _SchemeProcedure(scheme_proc):\n\
+  def fun(*args, **kwargs):\n\
+    kw_keys = list(kwargs.keys())\n\
+    kw_vals = list(kwargs.values())\n\
+    return _pfpc_call(scheme_proc, args, kw_keys, kw_vals)\n\
+  return foreign(fun)\n\
+\n\
+foreign = lambda x: (lambda:x).__closure__[0]\n\
+\n\
+class _SchemeObject(BaseException):\n\
+  def __init__(self, obj_capsule):\n\
+    self.obj_capsule = obj_capsule\n\
+  def __del__(self):\n\
+    _pfpc.free(self.obj_capsule)\n\
+\n\
+def set_global(k, v):\n\
+  globals()[k] = v\n\
+\n\
+";
+
+
+
+
+void python_thread_main(___thread *self) {
+
+  /* TODO: add error checking */
+
+  fpc_state *python_fpc_state = ___CAST(fpc_state*, self->data_ptr);
+
+  GIL_ACQUIRE();
+
+  PyObject *m = PyImport_AddModule("__main__");
+  PyObject *v = PyObject_GetAttrString(m, "_pfpc_start");
+
+  PyObject_CallOneArg(v, python_fpc_state->capsule); /* call _pfpc_start */
+
+  GIL_RELEASE();
+}
+
+
+___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
+
+#ifdef DEBUG_LOWLEVEL
+  printf("procedural_interrupt_execute_fn() enter\n");
+#endif
+
+  if (op != ___FAL) {
+
+    fpc_state *python_fpc_state = ___CAST(fpc_state*, self);
+
+    ___SCMOBJ scheme_fpc_state =
+      ___EXT(___data_rc)(___CAST(void*,python_fpc_state));
+
+//    printf("scheme_fpc_state = %p\n", scheme_fpc_state);
+//    printf("python_fpc_state->pstate = %p\n", python_fpc_state->pstate);
+
+    if (scheme_fpc_state == ___FAL) {
+
+      ___processor_state ___ps = python_fpc_state->pstate; /* same as ___PSTATE */
+      ___SCMOBJ python_fpc_state_scmobj;
+
+//      printf("___PSTATE = %p\n", ___PSTATE);
+//      printf("___ps = %p\n", ___ps);
+
+      scheme_fpc_state = ___EXT(___make_vector)(___ps, 4, ___NUL);
+
+      if (___FIXNUMP(scheme_fpc_state)) {
+        printf("heap overflow\n");
+        exit(1);
+      }
+
+      ___EXT(___set_data_rc)(python_fpc_state, scheme_fpc_state);
+
+      ___EXT(___register_rc)(___PSP python_fpc_state);
+
+      ___FIELD(scheme_fpc_state, 1) = ___GLO___ffi_2f_python_23_start_2d_buddy;
+
+      if (___EXT(___POINTER_to_SCMOBJ)(___ps,
+                                       ___CAST(void*,python_fpc_state),
+                                       ___C_TAG_fpc__state_2a_,
+                                       ___RELEASE_POINTER,
+                                       &python_fpc_state_scmobj,
+                                       ___RETURN_POS)
+          != ___FIX(___NO_ERR)) {
+        printf("could not convert python_fpc_state to foreign\n");
+        exit(1);
+      }
+
+      ___FIELD(scheme_fpc_state, 2) = python_fpc_state_scmobj;
+
+//      ___EXT(___release_scmobj)(python_fpc_state_scmobj);
+    }
+
+#ifdef DEBUG_LOWLEVEL
+    printf("procedural_interrupt_execute_fn() calling ___raise_high_level_interrupt_pstate\n");
+#endif
+
+    ___EXT(___raise_high_level_interrupt_pstate)(python_fpc_state->pstate,
+                                                 scheme_fpc_state);
+  }
+
+#ifdef DEBUG_LOWLEVEL
+  printf("procedural_interrupt_execute_fn() exit\n");
+#endif
+
+  return ___FIX(___NO_ERR);
+}
+
+
+fpc_state *alloc_python_fpc_state(___processor_state ___ps) {
+
+  PyObject *capsule;
+
+  fpc_state *python_fpc_state = ___EXT(___alloc_rc_no_register)(sizeof(fpc_state));
+
+  if (python_fpc_state == NULL) {
+    printf("could not allocate python_fpc_state\n");
+    exit(1); /* TODO: better error handling! */
+  }
+
+  ___EXT(___init_procedural_interrupt)(___CAST(void*, python_fpc_state),
+                                       procedural_interrupt_execute_fn);
+
+  python_fpc_state->pstate = ___ps;
+
+  capsule = PyCapsule_New(python_fpc_state, NULL, NULL);
+
+  if (capsule == NULL) {
+    printf("could not allocate capsule\n");
+    /* TODO: use ___release_rc */
+    ___EXT(___release_rc)(python_fpc_state);
+    exit(1); /* TODO: better error handling! */
+  }
+
+  PYOBJECTPTR_REFCNT_SHOW(capsule, "alloc_python_fpc_state");
+
+  python_fpc_state->capsule = capsule;
+
+#ifdef DEBUG_LOWLEVEL
+  printf("alloc_python_fpc_state() calling ___MUTEX_LOCK(python_fpc_state->wait_mut);\n");
+#endif
+
+  ___MUTEX_INIT(python_fpc_state->wait_mut);
+  ___MUTEX_LOCK(python_fpc_state->wait_mut);
+
+  python_fpc_state->python_thread.data_ptr = ___CAST(void*, python_fpc_state);
+
+  return python_fpc_state;
+}
+
+void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
+
+  ___processor_state ___ps = ___PSTATE;
+  fpc_state *python_fpc_state;
+
+#ifdef DEBUG_LOWLEVEL
+  printf("setup_python_fpc_state() enter\n");
+#endif
+
+  python_fpc_state = alloc_python_fpc_state(___PSTATE);
+
+  ___FIELD(___FIELD(scheme_fpc_state, 2),___FOREIGN_PTR) = ___CAST(___WORD, python_fpc_state);
+
+  ___EXT(___set_data_rc)(python_fpc_state, scheme_fpc_state);
+
+  ___EXT(___register_rc)(___PSP python_fpc_state);
+
+  /* Start the buddy Python thread */
+
+  python_fpc_state->python_thread.start_fn = python_thread_main;
+
+  if (___EXT(___thread_create)(&python_fpc_state->python_thread)
+      != ___FIX(___NO_ERR)) {
+    printf("can't create Python thread (was Gambit configured with --enable-multiple-threaded-vms?)\n");
+    exit(1); /* TODO: better error handling! */
+  }
+
+#ifdef DEBUG_LOWLEVEL
+  printf("setup_python_fpc_state() exit\n");
+#endif
+}
+
+
+void cleanup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
+
+  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
+  fpc_state *python_fpc_state =
+    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
+
+#ifdef DEBUG_LOWLEVEL
+  printf("cleanup_python_fpc_state() enter\n");
+#endif
+
+  if (___EXT(___thread_join)(&python_fpc_state->python_thread)
+      != ___FIX(___NO_ERR)) {
+    printf("can't join Python thread\n");
+    exit(1); /* TODO: better error handling! */
+  }
+
+#ifdef DEBUG_LOWLEVEL
+  printf("cleanup_python_fpc_state() exit\n");
+#endif
+}
+
+
+void sfpc_send(___SCMOBJ scheme_fpc_state, PyObject *message) {
+
+  PYOBJECTPTR_INCREF(message, "sfpc_send");
+
+  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
+  fpc_state *python_fpc_state =
+    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
+
+#ifdef DEBUG_LOWLEVEL
+  printf("sfpc_send() setting python_fpc_state->message\n");
+#endif
+
+  python_fpc_state->message = message;
+
+#ifdef DEBUG_LOWLEVEL
+  printf("sfpc_send() calling ___MUTEX_UNLOCK(python_fpc_state->wait_mut);\n");
+#endif
+
+  ___MUTEX_UNLOCK(python_fpc_state->wait_mut);
+}
+
+
+PyObject *sfpc_recv(___SCMOBJ scheme_fpc_state) {
+
+  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
+  fpc_state *python_fpc_state =
+    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
+
+#ifdef DEBUG_LOWLEVEL
+  printf("sfpc_recv() returning python_fpc_state->message\n");
+#endif
+
+  return python_fpc_state->message;
+}
+
+
+
 static PyObject *pfpc_send(PyObject *self, PyObject *args) {
 
   PyObject *capsule;
@@ -2246,10 +2548,62 @@ static PyObject *pfpc_free(PyObject *self, PyObject *args) {
 }
 
 
+___SCMOBJ ___thread_init_from_self
+   ___P((___thread *thread),
+        (thread)
+___thread *thread;)
+{
+#ifdef ___USE_POSIX_THREAD_SYSTEM
+
+  thread->thread_id = pthread_self ();
+
+#endif
+
+#ifdef ___USE_WIN32_THREAD_SYSTEM
+
+  thread->thread_handle = GetCurrentThread ();
+  thread->thread_id = GetCurrentThreadId ();
+
+#endif
+
+return ___FIX(___NO_ERR);
+//  return thread_init_common (thread);
+}
+
+static PyObject *pfpc_start_buddy(PyObject *self, PyObject *args) {
+
+  ___processor_state ___ps =
+    ___PSTATE_FROM_PROCESSOR_ID(0, &___GSTATE->vmstate0);
+
+  fpc_state *python_fpc_state;
+  PyObject *capsule;
+
+#ifdef DEBUG_LOWLEVEL
+  printf("pfpc_start_buddy() enter\n");
+#endif
+
+  python_fpc_state = alloc_python_fpc_state(___ps);
+
+  ___EXT(___thread_init_from_self)(&python_fpc_state->python_thread);
+
+
+  ___EXT(___raise_procedural_interrupt_pstate)(___ps,
+                                               ___CAST(void*,python_fpc_state));
+
+
+#ifdef DEBUG_LOWLEVEL
+  printf("pfpc_start_buddy() exit\n");
+#endif
+
+  return python_fpc_state->capsule;
+}
+
+
 static PyMethodDef pfpc_methods[] = {
   {"send",  pfpc_send, METH_VARARGS, "Send to buddy thread."},
   {"recv",  pfpc_recv, METH_VARARGS, "Receive from buddy thread."},
   {"free",  pfpc_free, METH_VARARGS, "Free Scheme object."},
+  {"start_buddy", pfpc_start_buddy, METH_VARARGS, "Start buddy Scheme thread."},
   {NULL, NULL, 0, NULL}
 };
 
@@ -2267,81 +2621,6 @@ static struct PyModuleDef pfpc_module = {
 PyMODINIT_FUNC PyInit_pfpc(void) {
   return PyModule_Create(&pfpc_module);
 }
-
-
-const char *python_code = "\
-\n\
-_threading = __import__(\"threading\")\n\
-_pfpc = __import__(\"pfpc\")\n\
-_fractions = __import__(\"fractions\")\n\
-_empty_dict = dict()\n\
-\n\
-def _pfpc_send(message):\n\
-  fpc_state = _threading.current_thread()._fpc_state\n\
-  _pfpc.send(fpc_state, message) # send message to Scheme\n\
-\n\
-def _pfpc_recv():\n\
-  fpc_state = _threading.current_thread()._fpc_state\n\
-  message = _pfpc.recv(fpc_state) # receive message from Scheme\n\
-  return message\n\
-\n\
-def _pfpc_loop():\n\
-  while True:\n\
-    message = _pfpc_recv()\n\
-    if message[0] == 'call':\n\
-      try:\n\
-        if message[3]:\n\
-          kwargs = dict(zip(message[3], message[4]))\n\
-        else:\n\
-          kwargs = _empty_dict\n\
-        result = message[1](*message[2], **kwargs)\n\
-        message = ('return', result)\n\
-      except BaseException as exc:\n\
-        message = ('raise', exc, repr(exc))\n\
-    elif message[0] == 'return':\n\
-      return message[1]\n\
-    elif message[0] == 'raise':\n\
-      raise message[1]\n\
-    elif message[0] == 'get-eval':\n\
-      message = ('return', lambda e: eval(e, globals()))\n\
-    elif message[0] == 'get-exec':\n\
-      message = ('return', lambda e: exec(e, globals()))\n\
-    else:\n\
-      message = ('error',)\n\
-    _pfpc_send(message)\n\
-\n\
-def _pfpc_call(fn, args, kw_keys, kw_vals):\n\
-  message = ('call', fn, args, kw_keys, kw_vals)\n\
-  _pfpc_send(message)\n\
-  return _pfpc_loop()\n\
-\n\
-def _pfpc_start(fpc_state):\n\
-  _threading.current_thread()._fpc_state = fpc_state\n\
-  _pfpc_loop()\n\
-\n\
-def _SchemeProcedure(scheme_proc):\n\
-  def fun(*args, **kwargs):\n\
-    kw_keys = list(kwargs.keys())\n\
-    kw_vals = list(kwargs.values())\n\
-    return _pfpc_call(scheme_proc, args, kw_keys, kw_vals)\n\
-  return foreign(fun)\n\
-\n\
-foreign = lambda x: (lambda:x).__closure__[0]\n\
-\n\
-class _SchemeObject(BaseException):\n\
-  def __init__(self, obj_capsule):\n\
-    self.obj_capsule = obj_capsule\n\
-  def __del__(self):\n\
-    _pfpc.free(self.obj_capsule)\n\
-\n\
-def set_global(k, v):\n\
-  globals()[k] = v\n\
-\n\
-";
-
-
-
-
 
 
 ___BOOL initialize(void) {
@@ -2368,169 +2647,6 @@ void finalize(void) {
   Py_Finalize();
 }
 
-
-void python_thread_main(___thread *self) {
-
-  /* TODO: add error checking */
-
-  fpc_state *python_fpc_state = ___CAST(fpc_state*, self->data_ptr);
-
-  GIL_ACQUIRE();
-
-  PyObject *m = PyImport_AddModule("__main__");
-  PyObject *v = PyObject_GetAttrString(m, "_pfpc_start");
-
-  PyObject_CallOneArg(v, python_fpc_state->capsule); /* call _pfpc_start */
-
-  GIL_RELEASE();
-}
-
-
-___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
-
-#ifdef DEBUG_LOWLEVEL
-  printf("procedural_interrupt_execute_fn() enter\n");
-#endif
-
-  if (op != ___FAL) {
-
-    fpc_state *python_fpc_state = ___CAST(fpc_state*, self);
-
-    ___SCMOBJ scheme_fpc_state =
-      ___EXT(___data_rc)(___CAST(void*,python_fpc_state));
-
-#ifdef DEBUG_LOWLEVEL
-    printf("procedural_interrupt_execute_fn() calling ___raise_high_level_interrupt_pstate\n");
-#endif
-
-    ___EXT(___raise_high_level_interrupt_pstate)(python_fpc_state->pstate,
-                                                 scheme_fpc_state);
-  }
-
-#ifdef DEBUG_LOWLEVEL
-  printf("procedural_interrupt_execute_fn() exit\n");
-#endif
-
-  return ___FIX(___NO_ERR);
-}
-
-
-void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
-
-  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
-  ___processor_state ___ps = ___PSTATE;
-  PyObject *capsule;
-
-#ifdef DEBUG_LOWLEVEL
-  printf("setup_python_fpc_state() enter\n");
-#endif
-
-  fpc_state *python_fpc_state = ___EXT(___alloc_rc)(___PSP sizeof(fpc_state));
-
-  if (python_fpc_state == NULL) {
-    printf("could not allocate python_fpc_state\n");
-    exit(1); /* TODO: better error handling! */
-  }
-
-  ___EXT(___init_procedural_interrupt)(___CAST(void*, python_fpc_state),
-                                       procedural_interrupt_execute_fn);
-
-  python_fpc_state->pstate = ___ps;
-
-  capsule = PyCapsule_New(python_fpc_state, NULL, NULL);
-
-  if (capsule == NULL) {
-    printf("could not allocate capsule\n");
-    ___EXT(___release_rc)(python_fpc_state);
-    exit(1); /* TODO: better error handling! */
-  }
-
-  PYOBJECTPTR_REFCNT_SHOW(capsule, "setup_python_fpc_state");
-
-  python_fpc_state->capsule = capsule;
-
-  ___FIELD(foreign,___FOREIGN_PTR) = ___CAST(___WORD, python_fpc_state);
-
-  ___EXT(___set_data_rc)(python_fpc_state, scheme_fpc_state);
-
-#ifdef DEBUG_LOWLEVEL
-  printf("setup_python_fpc_state() calling ___MUTEX_LOCK(python_fpc_state->wait_mut);\n");
-#endif
-
-  ___MUTEX_INIT(python_fpc_state->wait_mut);
-  ___MUTEX_LOCK(python_fpc_state->wait_mut);
-
-  python_fpc_state->python_thread.start_fn = python_thread_main;
-  python_fpc_state->python_thread.data_ptr = ___CAST(void*, python_fpc_state);
-
-  if (___EXT(___thread_create)(&python_fpc_state->python_thread)
-      != ___FIX(___NO_ERR)) {
-    printf("can't create Python thread (was Gambit configured with --enable-multiple-threaded-vms?)\n");
-    exit(1); /* TODO: better error handling! */
-  }
-
-#ifdef DEBUG_LOWLEVEL
-  printf("setup_python_fpc_state() exit\n");
-#endif
-}
-
-
-void cleanup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
-
-  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
-  fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
-
-#ifdef DEBUG_LOWLEVEL
-  printf("cleanup_python_fpc_state() enter\n");
-#endif
-
-  if (___EXT(___thread_join)(&python_fpc_state->python_thread)
-      != ___FIX(___NO_ERR)) {
-    printf("can't join Python thread\n");
-    exit(1); /* TODO: better error handling! */
-  }
-
-#ifdef DEBUG_LOWLEVEL
-  printf("cleanup_python_fpc_state() exit\n");
-#endif
-}
-
-
-void sfpc_send(___SCMOBJ scheme_fpc_state, PyObject *message) {
-
-  PYOBJECTPTR_INCREF(message, "sfpc_send");
-
-  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
-  fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
-
-#ifdef DEBUG_LOWLEVEL
-  printf("sfpc_send() setting python_fpc_state->message\n");
-#endif
-
-  python_fpc_state->message = message;
-
-#ifdef DEBUG_LOWLEVEL
-  printf("sfpc_send() calling ___MUTEX_UNLOCK(python_fpc_state->wait_mut);\n");
-#endif
-
-  ___MUTEX_UNLOCK(python_fpc_state->wait_mut);
-}
-
-
-PyObject *sfpc_recv(___SCMOBJ scheme_fpc_state) {
-
-  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
-  fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
-
-#ifdef DEBUG_LOWLEVEL
-  printf("sfpc_recv() returning python_fpc_state->message\n");
-#endif
-
-  return python_fpc_state->message;
-}
 
 
 end-of-c-declare
@@ -2592,9 +2708,36 @@ end-of-c-declare
     (table-set! scheme-fpc-state-table thread scheme-fpc-state)
     ((c-lambda (scheme-object) void "setup_python_fpc_state")
      scheme-fpc-state)
-    (thread-sleep! 0.5)
     scheme-fpc-state))
 
+(define (start-buddy scheme-fpc-state)
+  (declare (not interrupts-enabled))
+  (let ((mut (make-mutex)))
+    (mutex-lock! mut) ;; must be locked, to block at next mutex-lock!
+    (vector-set! scheme-fpc-state
+                 1
+                 (lambda (self)
+                   (let ((mut (vector-ref self 3)))
+                     (mutex-unlock! mut))))
+    (vector-set! scheme-fpc-state
+                 3
+                 mut)
+    (let ((thread
+           (##make-root-thread
+            (lambda ()
+              (with-exception-catcher
+               (lambda (e)
+;;                 (pp (list 'start-buddy-got-exception e))
+;;                 (print "e=") (display-exception e)
+                 #f)
+               (lambda ()
+;;                 (pp '-----------)
+                 (sfpc-send (vector "return" (void))) ;; signal thread is started
+                 (sfpc-loop))))
+            'buddy)))
+      (table-set! scheme-fpc-state-table thread scheme-fpc-state)
+      (thread-start! thread))))
+  
 (define (cleanup-scheme-fpc-state thread)
   (let ((scheme-fpc-state (table-ref scheme-fpc-state-table thread #f)))
     (and scheme-fpc-state
@@ -2628,10 +2771,13 @@ end-of-c-declare
             ((equal? (vector-ref message 0) "raise")
              (raise (cons (vector-ref message 1) (vector-ref message 2))))
             ((equal? (vector-ref message 0) "call")
+;;             (pp (list 'sfpc-loop-message= message))
              (sfpc-send
               (with-exception-catcher
-               (lambda (exc)
-                 (vector "raise" exc))
+               (lambda (e)
+;;                 (pp (list 'sfpc-loop-got-exception e))
+;;                 (print "e=") (display-exception e)
+                 (vector "raise" e))
                (lambda ()
                  (let* ((fn (vector-ref message 1))
                         (args (vector-ref message 2))
