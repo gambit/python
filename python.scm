@@ -2287,7 +2287,7 @@ ___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
 
       ___EXT(___register_rc)(___PSP python_fpc_state);
 
-      ___FIELD(scheme_fpc_state, 1) = ___GLO___ffi_2f_python_23_start_2d_buddy;
+      ___FIELD(scheme_fpc_state, 1) = ___GLO__23__23_start_2d_buddy;
 
       if (___EXT(___POINTER_to_SCMOBJ)(___ps,
                                        ___CAST(void*,python_fpc_state),
@@ -2710,7 +2710,7 @@ end-of-c-declare
      scheme-fpc-state)
     scheme-fpc-state))
 
-(define (start-buddy scheme-fpc-state)
+(define (##start-buddy scheme-fpc-state)
   (declare (not interrupts-enabled))
   (let ((mut (make-mutex)))
     (mutex-lock! mut) ;; must be locked, to block at next mutex-lock!
