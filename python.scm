@@ -2201,11 +2201,8 @@ def _pfpc_get_fpc_state():\n\
     _pfpc_loop(ct._fpc_state) # wait for buddy thread to be started\n\
   return ct._fpc_state\n\
 \n\
-def _pfpc_send(fpc_state, message):\n\
-  _pfpc.send(fpc_state, message) # send message to Scheme\n\
-\n\
-def _pfpc_recv(fpc_state):\n\
-  return _pfpc.recv(fpc_state) # receive message from Scheme\n\
+_pfpc_send = _pfpc.send\n\
+_pfpc_recv = _pfpc.recv\n\
 \n\
 #_op_return = 'return'\n\
 #_op_call   = 'call'\n\
