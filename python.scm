@@ -24,15 +24,15 @@
 ;; (##namespace ("_ffi/python#"))              ;; in _ffi/python#
 
 ;; (##include "~~lib/gambit/prim/prim#.scm")   ;; map fx+ to ##fx+, etc
-;; (##include "~~lib/_gambit#.scm")            ;; for macro-check-procedure,
+(##include "~~lib/_gambit#.scm")            ;; for macro-check-procedure,
 ;;                                             ;; macro-absent-obj, etc
 ;; (##include "~~lib/gambit#.scm")             ;; shell-command
 
 ;; (##include "python#.scm")                    ;; correctly map pyffi ops
 
 (##declare (extended-bindings) (standard-bindings) (block)) ;; ##fx+ is bound to fixnum addition, etc
-;; (declare (not safe))          ;; claim code has no type errors
-;; (declare (block))             ;; claim no global is assigned
+(declare (not safe))          ;; claim code has no type errors
+;;(declare (block))             ;; claim no global is assigned
 
 ;;;----------------------------------------------------------------------------
 
@@ -1820,23 +1820,57 @@ ___return(dst);
 
   ;; TODO: Handle **kwargs
   (define (procedure-conv callable)
-    (define (valid-kw? args)
-      (and (list? (cddr args))
-           (not (keyword? (cadr args)))))
-    (lambda args
-      (let loop ((args args) (*args '()) (kw-keys '()) (kw-vals '()))
-        (if (pair? args)
-            (if (keyword? (car args))
-                (if (valid-kw? args)
-                    (loop (cddr args)
-                          *args
-                          (cons (keyword->string (car args)) kw-keys)
-                          (cons (cadr args) kw-vals))
-                    (error "Keyword argument has no value" args))
-                (loop (cdr args) (cons (car args) *args) kw-keys kw-vals))
-            (if **kwargs
-                (sfpc-call callable (list->vector (reverse *args)) kw-keys kw-vals)
-                (sfpc-call callable (list->vector (reverse *args)) #!void #!void))))))
+    (define (valid-kw? rest)
+      (and (pair? rest)
+           (not (keyword? (car rest)))))
+    (lambda (#!optional
+             (arg1 (macro-absent-obj))
+             (arg2 (macro-absent-obj))
+             (arg3 (macro-absent-obj))
+             #!rest
+             other)
+
+      (define (generic args)
+        (let loop ((args args) (*args '()) (kw-keys '()) (kw-vals '()))
+          (if (pair? args)
+              (let ((arg (car args))
+                    (rest (cdr args)))
+                (if (keyword? arg)
+                    (if (valid-kw? rest)
+                        (loop (cdr rest)
+                              *args
+                              (cons (keyword->string arg) kw-keys)
+                              (cons (car rest) kw-vals))
+                        (error "Keyword argument has no value" args))
+                    (loop (cdr args) (cons (car args) *args) kw-keys kw-vals))
+                (if (null? kw-keys)
+                    (sfpc-call callable (list->vector (reverse *args)))
+                    (sfpc-call-with-kw callable (list->vector (reverse *args)) kw-keys kw-vals))))))
+
+      (cond ((eq? arg1 (macro-absent-obj))
+             (sfpc-call callable '#()))
+            ((keyword? arg1)
+             (cond ((eq? arg2 (macro-absent-obj))
+                    (generic (list arg1)))
+                   ((eq? arg3 (macro-absent-obj))
+                    (generic (list arg1 arg2)))
+                   (else
+                    (generic (cons arg1 (cons arg2 (cons arg3 other)))))))
+            ((eq? arg2 (macro-absent-obj))
+             (sfpc-call callable (vector arg1)))
+            ((keyword? arg2)
+             (cond ((eq? arg3 (macro-absent-obj))
+                    (generic (list arg1 arg2)))
+                   (else
+                    (generic (cons arg1 (cons arg2 (cons arg3 other)))))))
+            ((eq? arg3 (macro-absent-obj))
+             (sfpc-call callable (vector arg1 arg2)))
+            ((keyword? arg3)
+             (generic (cons arg1 (cons arg2 (cons arg3 other)))))
+            ((null? other)
+             (sfpc-call callable (vector arg1 arg2 arg3)))
+            (else
+             (generic (cons arg1 (cons arg2 (cons arg3 other))))))))
 
   (if (##foreign? src)
       (conv src)
@@ -2154,63 +2188,76 @@ typedef struct fpc_state_struct
 
 const char *python_code = "\
 \n\
+_sys = __import__(\"sys\")\n\
 _threading = __import__(\"threading\")\n\
 _pfpc = __import__(\"pfpc\")\n\
 _fractions = __import__(\"fractions\")\n\
-#_time = __import__(\"time\")\n\
 _empty_dict = dict()\n\
 \n\
 def _pfpc_get_fpc_state():\n\
   ct = _threading.current_thread()\n\
   if not hasattr(ct, \"_fpc_state\"):\n\
     ct._fpc_state = _pfpc.start_buddy()\n\
-    _pfpc_loop() # wait for buddy thread to be started\n\
+    _pfpc_loop(ct._fpc_state) # wait for buddy thread to be started\n\
   return ct._fpc_state\n\
 \n\
-def _pfpc_send(message):\n\
-  fpc_state = _pfpc_get_fpc_state()\n\
+def _pfpc_send(fpc_state, message):\n\
   _pfpc.send(fpc_state, message) # send message to Scheme\n\
 \n\
-def _pfpc_recv():\n\
-  fpc_state = _pfpc_get_fpc_state()\n\
-  message = _pfpc.recv(fpc_state) # receive message from Scheme\n\
-  return message\n\
+def _pfpc_recv(fpc_state):\n\
+  return _pfpc.recv(fpc_state) # receive message from Scheme\n\
 \n\
-def _pfpc_loop():\n\
+#_op_return = 'return'\n\
+#_op_call   = 'call'\n\
+#_op_raise  = 'raise'\n\
+#_op_error  = 'error'\n\
+#_op_get_eval = 'get-eval'\n\
+#_op_get_exec = 'get-exec'\n\
+#_op_terminate = 'terminate'\n\
+\n\
+_op_return = 0\n\
+_op_call   = 1\n\
+_op_raise  = 2\n\
+_op_error  = 3\n\
+_op_get_eval = 4\n\
+_op_get_exec = 5\n\
+_op_terminate = 6\n\
+\n\
+def _pfpc_loop(fpc_state):\n\
   while True:\n\
-    message = _pfpc_recv()\n\
+    message = _pfpc_recv(fpc_state)\n\
 #    print(\"pfpc_loop message =\", repr(message))\n\
-    if message[0] == 'call':\n\
+    op = message[0]\n\
+    if op == _op_call:\n\
       try:\n\
-        if message[3]:\n\
-          kwargs = dict(zip(message[3], message[4]))\n\
+        if len(message) > 3:\n\
+          message = (_op_return, message[1](*message[2], **dict(zip(message[3], message[4]))))\n\
         else:\n\
-          kwargs = _empty_dict\n\
-        result = message[1](*message[2], **kwargs)\n\
-        message = ('return', result)\n\
+          message = (_op_return, message[1](*message[2]))\n\
       except BaseException as exc:\n\
-        message = ('raise', exc, repr(exc))\n\
-    elif message[0] == 'return':\n\
+        message = (_op_raise, exc, repr(exc))\n\
+    elif op == _op_return:\n\
       return message[1]\n\
-    elif message[0] == 'raise':\n\
+    elif op == _op_raise:\n\
       raise message[1]\n\
-    elif message[0] == 'get-eval':\n\
-      message = ('return', lambda e: eval(e, globals()))\n\
-    elif message[0] == 'get-exec':\n\
-      message = ('return', lambda e: exec(e, globals()))\n\
+    elif op == _op_get_eval:\n\
+      message = (_op_return, lambda e: eval(e, globals()))\n\
+    elif op == _op_get_exec:\n\
+      message = (_op_return, lambda e: exec(e, globals()))\n\
+    elif op == _op_terminate:\n\
+      _sys.exit()\n\
     else:\n\
-      message = ('error',)\n\
-    _pfpc_send(message)\n\
-#  _time.sleep(0.5)\n\
+      message = (_op_error, op)\n\
+    _pfpc_send(fpc_state, message)\n\
 \n\
 def _pfpc_call(fn, args, kw_keys, kw_vals):\n\
-  message = ('call', fn, args, kw_keys, kw_vals)\n\
-  _pfpc_send(message)\n\
-  return _pfpc_loop()\n\
+  fpc_state = _pfpc_get_fpc_state()\n\
+  _pfpc_send(fpc_state, (_op_call, fn, args, kw_keys, kw_vals))\n\
+  return _pfpc_loop(fpc_state)\n\
 \n\
 def _pfpc_start(fpc_state):\n\
   _threading.current_thread()._fpc_state = fpc_state\n\
-  _pfpc_loop()\n\
+  _pfpc_loop(fpc_state)\n\
 \n\
 def _SchemeProcedure(scheme_proc):\n\
   def fun(*args, **kwargs):\n\
@@ -2300,7 +2347,7 @@ ___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
         exit(1);
       }
 
-      ___FIELD(scheme_fpc_state, 2) = python_fpc_state_scmobj;
+      ___FIELD(scheme_fpc_state, 3) = python_fpc_state_scmobj;
 
 //      ___EXT(___release_scmobj)(python_fpc_state_scmobj);
     }
@@ -2373,7 +2420,7 @@ void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 
   python_fpc_state = alloc_python_fpc_state(___PSTATE);
 
-  ___FIELD(___FIELD(scheme_fpc_state, 2),___FOREIGN_PTR) = ___CAST(___WORD, python_fpc_state);
+  ___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR) = ___CAST(___WORD, python_fpc_state);
 
   ___EXT(___set_data_rc)(python_fpc_state, scheme_fpc_state);
 
@@ -2397,9 +2444,8 @@ void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 
 void cleanup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 
-  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
   fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
+    ___CAST(fpc_state*,___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR));
 
 #ifdef DEBUG_LOWLEVEL
   printf("cleanup_python_fpc_state() enter\n");
@@ -2421,9 +2467,8 @@ void sfpc_send(___SCMOBJ scheme_fpc_state, PyObject *message) {
 
   PYOBJECTPTR_INCREF(message, "sfpc_send");
 
-  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
   fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
+    ___CAST(fpc_state*,___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR));
 
 #ifdef DEBUG_LOWLEVEL
   printf("sfpc_send() setting python_fpc_state->message\n");
@@ -2441,9 +2486,8 @@ void sfpc_send(___SCMOBJ scheme_fpc_state, PyObject *message) {
 
 PyObject *sfpc_recv(___SCMOBJ scheme_fpc_state) {
 
-  ___SCMOBJ foreign = ___FIELD(scheme_fpc_state, 2);
   fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(foreign,___FOREIGN_PTR));
+    ___CAST(fpc_state*,___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR));
 
 #ifdef DEBUG_LOWLEVEL
   printf("sfpc_recv() returning python_fpc_state->message\n");
@@ -2689,11 +2733,12 @@ end-of-c-declare
 
 (define scheme-fpc-state-table #f)
 
-(define (get-scheme-fpc-state! thread)
-  (or (table-ref scheme-fpc-state-table thread #f)
-      (let ((scheme-fpc-state (make-scheme-fpc-state thread)))
-        (table-set! scheme-fpc-state-table thread scheme-fpc-state)
-        scheme-fpc-state)))
+(define (get-scheme-fpc-state!)
+  (let ((thread (current-thread)))
+    (or (table-ref scheme-fpc-state-table thread #f)
+        (let ((scheme-fpc-state (make-scheme-fpc-state thread)))
+          (table-set! scheme-fpc-state-table thread scheme-fpc-state)
+          scheme-fpc-state))))
 
 (define (make-scheme-fpc-state thread)
   (let ((scheme-fpc-state
@@ -2701,10 +2746,10 @@ end-of-c-declare
            (mutex-lock! mut) ;; must be locked, to block at next mutex-lock!
            (vector '()
                    (lambda (self)
-                     (let ((mut (vector-ref self 3)))
+                     (let ((mut (vector-ref self 2)))
                        (mutex-unlock! mut)))
-                   (make-null-fpc_state*)
-                   mut))))
+                   mut
+                   (make-null-fpc_state*)))))
     (table-set! scheme-fpc-state-table thread scheme-fpc-state)
     ((c-lambda (scheme-object) void "setup_python_fpc_state")
      scheme-fpc-state)
@@ -2717,10 +2762,10 @@ end-of-c-declare
     (vector-set! scheme-fpc-state
                  1
                  (lambda (self)
-                   (let ((mut (vector-ref self 3)))
+                   (let ((mut (vector-ref self 2)))
                      (mutex-unlock! mut))))
     (vector-set! scheme-fpc-state
-                 3
+                 2
                  mut)
     (let ((thread
            (##make-root-thread
@@ -2732,8 +2777,8 @@ end-of-c-declare
                  #f)
                (lambda ()
 ;;                 (pp '-----------)
-                 (sfpc-send (vector "return" (void))) ;; signal thread is started
-                 (sfpc-loop))))
+                 (sfpc-send scheme-fpc-state (vector op-return (void))) ;; signal thread is started
+                 (sfpc-loop scheme-fpc-state))))
             'buddy)))
       (table-set! scheme-fpc-state-table thread scheme-fpc-state)
       (thread-start! thread))))
@@ -2742,59 +2787,85 @@ end-of-c-declare
   (let ((scheme-fpc-state (table-ref scheme-fpc-state-table thread #f)))
     (and scheme-fpc-state
          (begin
-           (sfpc-send (vector "terminate"))
+           (sfpc-send scheme-fpc-state (vector op-terminate))
            ((c-lambda (scheme-object) void "cleanup_python_fpc_state")
             scheme-fpc-state)))))
 
-(define (sfpc-send message)
-  (let ((scheme-fpc-state (get-scheme-fpc-state! (current-thread))))
-    (let ((python-message (object->PyObject* message)))
-      ((c-lambda (scheme-object PyObject*) void "sfpc_send")
-       scheme-fpc-state
-       python-message)
-      )))
+(define (sfpc-send scheme-fpc-state message)
+;;  (pp (list 'sfpc-send scheme-fpc-state message))
+  (let ((python-message (object->PyObject* message)))
+    ((c-lambda (scheme-object PyObject*) void "sfpc_send")
+     scheme-fpc-state
+     python-message)
+    ))
 
-(define (sfpc-recv)
-  (let ((scheme-fpc-state (get-scheme-fpc-state! (current-thread))))
-    (mutex-lock! (vector-ref scheme-fpc-state 3))
-    (let ((python-message
-           ((c-lambda (scheme-object) PyObject*!own "sfpc_recv")
-            scheme-fpc-state)))
-      python-message)))
+(define (sfpc-recv scheme-fpc-state)
+;;  (pp (list 'sfpc-recv scheme-fpc-state))
+  (mutex-lock! (vector-ref scheme-fpc-state 2))
+  ((c-lambda (scheme-object) PyObject*!own "sfpc_recv")
+   scheme-fpc-state))
+#;
+(begin
+  (define op-return "return")
+  (define op-call   "call")
+  (define op-raise  "raise")
+  (define op-error  "error")
+  (define op-get-eval "get-eval")
+  (define op-get-exec "get-exec")
+  (define op-terminate "terminate"))
 
-(define (sfpc-loop)
+(begin
+  (define op-return 0)
+  (define op-call   1)
+  (define op-raise  2)
+  (define op-error  3)
+  (define op-get-eval 4)
+  (define op-get-exec 5)
+  (define op-terminate 6))
+
+(define (sfpc-loop scheme-fpc-state)
+;;  (pp (list 'sfpc-loop scheme-fpc-state))
   (let loop ()
-    (let* ((python-message (sfpc-recv))
-           (message (PyObject*->object python-message)))
-      (cond ((equal? (vector-ref message 0) "return")
+    (let* ((python-message (sfpc-recv scheme-fpc-state))
+           (message (PyObject*->object python-message))
+           (op (vector-ref message 0)))
+      (cond ((equal? op op-return)
              (vector-ref message 1))
-            ((equal? (vector-ref message 0) "raise")
-             (raise (cons (vector-ref message 1) (vector-ref message 2))))
-            ((equal? (vector-ref message 0) "call")
+            ((equal? op op-call)
 ;;             (pp (list 'sfpc-loop-message= message))
              (sfpc-send
+              scheme-fpc-state
               (with-exception-catcher
                (lambda (e)
 ;;                 (pp (list 'sfpc-loop-got-exception e))
 ;;                 (print "e=") (display-exception e)
-                 (vector "raise" e))
+                 (vector op-raise e))
                (lambda ()
                  (let* ((fn (vector-ref message 1))
                         (args (vector-ref message 2))
                         (kw-keys (vector-ref message 3))
                         (kw-vals (vector-ref message 4))
                         (result (apply fn (append (vector->list args) (kwargs->keywords kw-keys kw-vals)))))
-                   (vector "return" result)))))
+                   (vector op-return result)))))
              (loop))
+            ((equal? op op-raise)
+             (raise (cons (vector-ref message 1) (vector-ref message 2))))
+            ((equal? op op-error)
+             (error "_pfpc_loop got an unknown message" (vector-ref message 1)))
             (else
-             (error "sfpc-call got an unknown message" message))))))
+             (error "sfpc-loop got an unknown message" message))))))
 
-(define (sfpc-send-recv msg)
-  (sfpc-send msg)
-  (sfpc-loop))
+(define (sfpc-send-recv scheme-fpc-state msg)
+  (sfpc-send scheme-fpc-state msg)
+  (sfpc-loop scheme-fpc-state))
 
-(define (sfpc-call fn args kw-keys kw-vals)
-  (sfpc-send-recv (vector "call" fn args kw-keys kw-vals)))
+(define (sfpc-call-with-kw fn args kw-keys kw-vals)
+  (let ((scheme-fpc-state (get-scheme-fpc-state!)))
+    (sfpc-send-recv scheme-fpc-state (vector op-call fn args kw-keys kw-vals))))
+
+(define (sfpc-call fn args)
+  (let ((scheme-fpc-state (get-scheme-fpc-state!)))
+    (sfpc-send-recv scheme-fpc-state (vector op-call fn args))))
 
 (define (setup-fpc)
 
@@ -2869,14 +2940,14 @@ end-of-c-declare
 
 (setup-fpc)
 
-(define python-eval (sfpc-send-recv (vector "get-eval")))
-(define python-exec (sfpc-send-recv (vector "get-exec")))
+(define python-eval (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-eval)))
+(define python-exec (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-exec)))
 (define python-SchemeProcedure (python-eval "_SchemeProcedure"))
 
 (python-exec
- (string-append "import sys; sys.path.append('"
+ (string-append "__import__('sys').path.append('"
                 (path-expand (string-append VENV-PATH "/lib/python" PYVER "/site-packages"))
-                "'); del sys"))
+                "')"))
 
 ;; (register-foreign-write-handlers)
 
