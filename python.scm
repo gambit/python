@@ -1763,9 +1763,9 @@ ___return(dst);
 (define (PyObject*->object src)
 
   (define (conv src)
-    (let ((converter (table-ref PyObject*-converters (PyObject*-type-name src) #f)))
-      (if converter
-          (converter src)
+;;    (let ((converter (table-ref PyObject*-converters (PyObject*-type-name src) #f)))
+;;      (if converter
+;;          (converter src)
           (case (car (##foreign-tags src))
             ((PyObject*/None)                        (PyObject*/None->void src))
             ((PyObject*/bool)                        (PyObject*/bool->boolean src))
@@ -1787,7 +1787,9 @@ ___return(dst);
             (else
              (cond ((= 1 (PyCallable_Check src))     (procedure-conv src))
                    ((SchemeObject? src)              (SchemeObject->object src))
-                   (else                             src)))))))
+                   (else                             src))))
+;;))
+)
 
   (define (list-conv src)
     (let* ((vect (PyObject*/list->vector src))
@@ -1876,6 +1878,35 @@ ___return(dst);
       (conv src)
       src))
 
+(define (PyObject*-or-subtype? tag)
+  (case tag
+    ((PyObject*
+      PyObject*/None
+      PyObject*/bool
+      PyObject*/int
+      PyObject*/float
+      PyObject*/complex
+      PyObject*/Fraction
+      PyObject*/bytes
+      PyObject*/bytearray
+      PyObject*/str
+      PyObject*/list
+      PyObject*/dict
+      PyObject*/frozenset
+      PyObject*/set
+      PyObject*/tuple
+      PyObject*/module
+      PyObject*/type
+      PyObject*/function
+      PyObject*/builtin_function_or_method
+      PyObject*/method
+      PyObject*/method_descriptor
+      PyObject*/cell
+      PyObject*/SchemeObject)
+     #t)
+    (else
+     #f)))
+
 (define (object->PyObject* src)
 
   (define (conv src)
@@ -1898,30 +1929,8 @@ ___return(dst);
           ((table? src)                 (table-conv src))
           ((symbol? src)                (string->PyObject*/str (symbol->string src)))
           ((and (##foreign? src)
-                (memq (car (##foreign-tags src))
-                      '(PyObject*
-                        PyObject*/None
-                        PyObject*/bool
-                        PyObject*/int
-                        PyObject*/float
-                        PyObject*/complex
-                        PyObject*/Fraction
-                        PyObject*/bytes
-                        PyObject*/bytearray
-                        PyObject*/str
-                        PyObject*/list
-                        PyObject*/dict
-                        PyObject*/frozenset
-                        PyObject*/set
-                        PyObject*/tuple
-                        PyObject*/module
-                        PyObject*/type
-                        PyObject*/function
-                        PyObject*/builtin_function_or_method
-                        PyObject*/method
-                        PyObject*/method_descriptor
-                        PyObject*/cell
-                        PyObject*/SchemeObject)))
+                (PyObject*-or-subtype?
+                 (car (##foreign-tags src))))
            src)
           ((procedure? src)             (procedure->SchemeProcedure src))
           (else
@@ -2519,6 +2528,8 @@ static PyObject *pfpc_send(PyObject *self, PyObject *args) {
   printf("pfpc_send() setting python_fpc_state->message\n");
 #endif
 
+  PYOBJECTPTR_INCREF(message, "pfpc_send");
+
   python_fpc_state->message = message;
 
 #ifdef DEBUG_LOWLEVEL
@@ -2695,15 +2706,15 @@ end-of-c-declare
 
 ;;;----------------------------------------------------------------------------
 
-(define PyObject*-converters (make-table))
+;;(define PyObject*-converters (make-table))
 
-(define (PyObject*-register-converter type-name conv)
-  (let ((val (table-ref PyObject*-converters type-name #f)))
-    (if val
-        (begin
-          (table-set! PyObject*-converters type-name #f)
-          (table-set! PyObject*-converters type-name conv))
-        (table-set! PyObject*-converters type-name conv))))
+;;(define (PyObject*-register-converter type-name conv)
+;;  (let ((val (table-ref PyObject*-converters type-name #f)))
+;;    (if val
+;;        (begin
+;;          (table-set! PyObject*-converters type-name #f)
+;;          (table-set! PyObject*-converters type-name conv))
+;;        (table-set! PyObject*-converters type-name conv))))
 
 (define (##py-function-memoized descr)
   (let* ((x (##unbox descr)))
