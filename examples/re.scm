@@ -3,21 +3,12 @@
 
 \import re
 
-(define (re.Pattern-converter obj)
-  (lambda (attr . args)
-    (case attr
-      ((pattern) \(`obj).pattern)
-      ((match) \(`obj).match(`(car args)))
-      ((search) \(`obj).search(`(car args))))))
+(define (re-search pattern string)
+  \re.search(`pattern, `string))
 
-(PyObject*-register-converter "re.Pattern" re.Pattern-converter)
+(define (re-group match i)
+  \(`match).group(`i))
 
-(define (compile pattern)
-  \re.compile(`pattern))
+(define m (re-search "s....e" "(sch3me)"))
 
-(define pat (compile "s....e"))
-
-(define m (pat 'search "(sch3me)"))
-
-(println m)
-;; #<PyObject* #2 <re.Match object; span=(1, 7), match='sch3me'>>
+(pp (re-group m 0)) ;; prints "sch3me"
