@@ -1,5 +1,6 @@
-(import (_six python))
-(import (github.com/udem-dlteam python))
+(import (_six python)
+        (github.com/gambit/python))
+
 \import requests
 
 (define-type Response

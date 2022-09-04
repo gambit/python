@@ -1,6 +1,7 @@
-(import (_six python))
-(import (github.com/udem-dlteam python))
-(python-exec "import matplotlib.pyplot as plt")
+(import (_six python)
+        (github.com/gambit/python))
+
+\import matplotlib.pyplot as plt
 \import numpy as np
 
 (define N 5)

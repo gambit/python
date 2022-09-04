@@ -9,7 +9,7 @@
 
 (define-library (python)
 
-  (namespace "github.com/udem-dlteam/python#")
+  (namespace "github.com/gambit/python#")
 
   (export
 
