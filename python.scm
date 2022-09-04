@@ -47,6 +47,7 @@
     (define GAMBIT_PYTHON_EXECUTABLE (getenv "GAMBIT_PYTHON_EXECUTABLE" #f))
     (define GAMBIT_PYTHON_VERSION (getenv "GAMBIT_PYTHON_VERSION" #f))
     (define GAMBIT_PYTHON_VENV (getenv "GAMBIT_PYTHON_VENV" #f))
+    (define GAMBIT_PYTHON_DEBUG (getenv "GAMBIT_PYTHON_DEBUG" #f))
 
     (define python-min-supported-version "3.7")
 
@@ -240,17 +241,20 @@
                    (venv-bin-dir (path-expand "bin" venv-dir))
                    (venv-lib-dir (path-expand (string-append "python" version)
                                               (path-expand "lib" venv-dir))))
-(let ((xxx              `(begin
-                 (define python-version ,version)
-                 (define python-executable ,executable)
-                 (define python-c-compiler ,c-compiler)
-                 (define python-libdir ,libdir)
-                 (define python-venv-dir ,venv-dir)
-                 (define python-venv-bin-dir ,venv-bin-dir)
-                 (define python-venv-lib-dir ,venv-lib-dir)
-                 (##meta-info ld-options ,ldflags)
-                 (##meta-info cc-options ,cflags))))
-  (pp xxx) xxx)))))))
+              (let ((definitions
+                      `(begin
+                         (define python-version ,version)
+                         (define python-executable ,executable)
+                         (define python-c-compiler ,c-compiler)
+                         (define python-libdir ,libdir)
+                         (define python-venv-dir ,venv-dir)
+                         (define python-venv-bin-dir ,venv-bin-dir)
+                         (define python-venv-lib-dir ,venv-lib-dir)
+                         (##meta-info ld-options ,ldflags)
+                         (##meta-info cc-options ,cflags))))
+                (if GAMBIT_PYTHON_DEBUG
+                    (pp definitions))
+                definitions)))))))
 
 (find-python-and-create-venv-and-generate-meta-info)
 
