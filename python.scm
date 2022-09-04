@@ -1,13 +1,3 @@
-;;; on macOS compile with:
-;;;
-;;; gsc/gsc -:= -exe -cc-options -I/usr/local/opt/python@3.10/Frameworks/Python.framework/Versions/3.10/Headers -ld-options /usr/local/opt/python@3.10/Frameworks/Python.framework/Versions/3.10/lib/libpython3.10.dylib python-fpc-proto1.scm
-
-;;; The first part of this file is copied from lib/_ffi/python/python.scm
-;;; with modifications for error handling and GIL acquire/release.
-
-
-
-
 ;;;============================================================================
 
 ;;; File: "python.scm"
@@ -19,27 +9,96 @@
 
 ;;; Python FFI.
 
-;; (##supply-module _ffi/python)
+(##supply-module github.com/gambit/python)
 
-;; (##namespace ("_ffi/python#"))              ;; in _ffi/python#
+(##namespace ("github.com/gambit/python#")) ;; in github.com/gambit/python#
 
-;; (##include "~~lib/gambit/prim/prim#.scm")   ;; map fx+ to ##fx+, etc
+(##include "~~lib/gambit/prim/prim#.scm")   ;; map fx+ to ##fx+, etc
 (##include "~~lib/_gambit#.scm")            ;; for macro-check-procedure,
-;;                                             ;; macro-absent-obj, etc
-;; (##include "~~lib/gambit#.scm")             ;; shell-command
+                                            ;; macro-absent-obj, etc
 
-;; (##include "python#.scm")                    ;; correctly map pyffi ops
+(##include "python#.scm")                   ;; correctly map exported names
 
-(##declare (extended-bindings) (standard-bindings) (block)) ;; ##fx+ is bound to fixnum addition, etc
+(declare (standard-bindings)) ;; ##fx+ is bound to fixnum addition, etc
 (declare (not safe))          ;; claim code has no type errors
-;;(declare (block))             ;; claim no global is assigned
+(declare (block))             ;; claim no global is assigned
+
+(##namespace (""
+              current-thread make-thread thread-start! thread-sleep!
+              make-mutex mutex-lock! mutex-unlock!))
 
 ;;;----------------------------------------------------------------------------
 
+;; When this module is built a suitable python executable must be
+;; located.  A venv must then be created to host the python modules
+;; that will be installed (to avoid clobbering an existing python
+;; installation).
 
-;; Generate meta information to link to Python libs.
-(define-syntax gen-meta-info
+;; These build-time operations are encapsulated in the following macro
+;; which allows executing Scheme code when the module is compiled.
+;; The macro generates various definitions giving the details of the
+;; python venv, and it generates ##meta-info forms that give C
+;; compiler and linker flags required to properly link to the python
+;; shared library.
+
+(define-syntax find-python-and-create-venv-and-generate-meta-info
   (lambda (src)
+
+    (define GAMBIT_PYTHON_EXECUTABLE (getenv "GAMBIT_PYTHON_EXECUTABLE" #f))
+    (define GAMBIT_PYTHON_VERSION (getenv "GAMBIT_PYTHON_VERSION" #f))
+    (define GAMBIT_PYTHON_VENV (getenv "GAMBIT_PYTHON_VENV" #f))
+
+    (define python-min-supported-version "3.7")
+
+    (define python-executables
+      '("python3.10"
+        "python3.9"
+        "python3.8"
+        "python3.7"
+        "python3"
+        "python"))
+
+    (define (this-source-file-dir)
+      (path-directory (##source-path src)))
+
+    (define python-config-script
+      (path-expand "python-config.py" (this-source-file-dir)))
+
+    (define (get-python-config python-executable)
+      (if (not (file-exists? python-config-script))
+          (error "The following required script is missing:"
+                 python-config-script)
+          (let* ((res
+                  (shell-command
+                   (string-append python-executable " " python-config-script)
+                   #t))
+                 (exit-code
+                  (car res))
+                 (output
+                  (cdr res)))
+            (if (= exit-code 0)
+                (with-input-from-string
+                    output
+                  (lambda ()
+                    (let* ((version
+                            (string-strip-trailing-return! (read-line)))
+                           (c-compiler
+                            (string-strip-trailing-return! (read-line)))
+                           (ldflags
+                            (string-strip-trailing-return! (read-line)))
+                           (cflags
+                            (string-strip-trailing-return! (read-line)))
+                           (libdir
+                            (string-strip-trailing-return! (read-line))))
+                      (list version
+                            (cons 'executable python-executable)
+                            (cons 'version    version)
+                            (cons 'c-compiler c-compiler)
+                            (cons 'ldflags    ldflags)
+                            (cons 'cflags     cflags)
+                            (cons 'libdir     libdir)))))
+                #f))))
+
     (define (string-strip-trailing-return! str)
       (if (string? str)
           (let ((newlen (- (string-length str) 1)))
@@ -47,68 +106,166 @@
                 (string-shrink! str newlen))))
       str)
 
-    (define os (substring (symbol->string (caddr (system-type))) 0 3))
-    (define default-venv-path #f)
-    (define venv-path #f)
-    ;; Determine CPython interpreter to use.
-    (define version (getenv "GAMBIT_PYTHON_VERSION" "3.10"))
-    (define python (string-append "python" version))
-    ;; Its alias in the virtualenv
-    (define python3 #f)
+    (define (string-split-at str sep)
+      (call-with-input-string
+          str
+        (lambda (port)
+          (read-all port (lambda (port) (read-line port sep))))))
 
-    ;; Check if the CPython executable exists, or early exit if it does not
-    (and (not (= 0 (car (shell-command (string-append "command -v " python) #t))))
-         (println "CPython version " version " not found, will not compile the FFI.")
-         (exit 0))
+    (define (split-version str)
+      (let ((v (map string->number (string-split-at str #\.))))
+        (if (memv #f v)
+            #f
+            v)))
 
-    ;; Only compile on macOS and Linux for now.
-    (cond
-     ((or (equal? "dar" os) (equal? "lin" os))
-      (set! default-venv-path "~/.gambit_venv")
-      (set! venv-path (getenv "GAMBIT_VENV" default-venv-path))
-      (set! python3 (string-append venv-path "/bin/python3")))
-     ;; TODO: Windows, exit gracefully
-     (else (exit 0)))
+    (define (compare-versions version1 version2)
+      (let ((v1 (split-version version1))
+            (v2 (split-version version2)))
+        (let loop ((v1 v1) (v2 v2))
+          (cond ((null? v1)
+                 (if (null? v2)
+                     0
+                     -1))
+                ((null? v2)
+                 1)
+                ((< (car v1) (car v2))
+                 -1)
+                ((> (car v1) (car v2))
+                 1)
+                (else
+                 (loop (cdr v1) (cdr v2)))))))
 
-    ;; NOTE: Try to create the venv first to avoid differing venv and env python version
-    ;; issues on macOS. We take the current env python3 and run from there.
-    (shell-command (string-append python " -m venv " venv-path))
+    (define python-configs-found '())
 
-    ;; NOTE: Only after putting everything in a venv do we proceed with introspection
-    (let ((sh
-           (parameterize ((current-directory
-                           (path-directory (##source-path src))))
-             (shell-command (string-append python3 " " (current-directory) "/python-config.py") #t))))
+    (define (find-suitable-python-config)
 
-      (and (not (= 0 (car sh)))
-           (println "Error executing python3-config.py, will not compile the CPython FFI." sh)
-           (exit 0))
+      (if GAMBIT_PYTHON_EXECUTABLE
+          (set! python-executables
+            (list GAMBIT_PYTHON_EXECUTABLE))
+          (if GAMBIT_PYTHON_VERSION
+              (let ((executable
+                     (string-append "python" GAMBIT_PYTHON_VERSION)))
+                (if (not (member executable python-executables))
+                    (set! python-executables
+                      (cons executable python-executables))))))
 
-      (let* ((res
-              (call-with-input-string (cdr sh)
-                (lambda (port)
-                  (read-all port (lambda (p) (string-strip-trailing-return! (read-line p)))))))
-             (pyver   (list-ref res 0))
-             (pycc    (list-ref res 1))
-             (ldflags (list-ref res 2))
-             (cflags  (list-ref res 3))
-             (libdir  (list-ref res 4)))
+      (for-each (lambda (python-executable)
+                  (let ((config (get-python-config python-executable)))
+                    (if config
+                        (set! python-configs-found
+                          (cons config python-configs-found)))))
+                python-executables)
 
-        ;; Get proper PYTHONPATH from venv bin
-        (let* ((s (cdr
-                   (shell-command
-                    (string-append python3 " -c 'import sys; print(\"\"+\":\".join(sys.path))'") #t)))
-               (pythonpath (substring s 0 (- (string-length s) 2))))
+      (set! python-configs-found (reverse python-configs-found))
 
-          `(begin
-             (define PYVER ,pyver)
-             (define LIBDIR ,libdir)
-             (define PYTHONPATH ,pythonpath)
-             (define VENV-PATH ,venv-path)
-             (##meta-info ld-options ,ldflags)
-             (##meta-info cc-options ,cflags)))))))
+      (cond ((null? python-configs-found)
 
-(gen-meta-info)
+             (error "None of these python executables were found:"
+                    python-executables))
+
+            (GAMBIT_PYTHON_VERSION
+
+             ;; check if requested version exists (note that it could
+             ;; be lower than python-min-supported-version to allow
+             ;; bypassing the check by experts)
+
+             (let ((x (assoc GAMBIT_PYTHON_VERSION python-configs-found)))
+               (if x
+                   (cdr x)
+                   (error (string-append "A python executable for version "
+                                         GAMBIT_PYTHON_VERSION
+                                         " was not found")))))
+
+            (else
+
+             ;; find highest version and make sure it is at least
+             ;; python-min-supported-version
+
+             (let* ((sorted-python-configs-found
+                    (list-sort
+                     (lambda (config1 config2)
+                       (let ((version1 (car config1))
+                             (version2 (car config2)))
+                         (> (compare-versions version1 version2) 0)))
+                     python-configs-found))
+                    (config
+                     (car sorted-python-configs-found))
+                    (version
+                     (car config)))
+               (if (< (compare-versions version python-min-supported-version) 0)
+                   (error (string-append
+                           "The minimal python version allowed is "
+                           python-min-supported-version
+                           " and the version that was found is "
+                           version
+                           ". Set the GAMBIT_PYTHON_EXECUTABLE env var to the path of a compatible version or upgrade your python installation."))
+                   (cdr config))))))
+
+    (let* ((config (find-suitable-python-config))
+           (version (cdr (assoc 'version config)))
+           (executable (cdr (assoc 'executable config)))
+           (venv-dir
+            (or GAMBIT_PYTHON_VENV
+                (path-expand (string-append ".venv" version)
+                             (path-expand "~~userlib"))))
+           (venv-executable
+            (path-expand "python" (path-expand "bin" venv-dir))))
+
+      (if (not (file-exists? venv-dir))
+          (let* ((res
+                  (shell-command
+                   (string-append executable " -m venv " venv-dir)
+                   #t))
+                 (exit-code
+                  (car res))
+                 (output
+                  (cdr res)))
+            (if (not (= exit-code 0))
+                (begin
+                  (display output)
+                  (error "The python venv could not be created in:"
+                         venv-dir)))))
+
+      (let ((config (get-python-config venv-executable)))
+        (if (not config)
+            (error "Could not get the python configuration of:"
+                   venv-executable)
+            (let* ((config       (cdr config))
+                   (version      (cdr (assoc 'version config)))
+                   (executable   (cdr (assoc 'executable config)))
+                   (c-compiler   (cdr (assoc 'c-compiler config)))
+                   (cflags       (cdr (assoc 'cflags config)))
+                   (ldflags      (cdr (assoc 'ldflags config)))
+                   (libdir       (cdr (assoc 'libdir config)))
+                   (venv-bin-dir (path-expand "bin" venv-dir))
+                   (venv-lib-dir (path-expand (string-append "python" version)
+                                              (path-expand "lib" venv-dir))))
+(let ((xxx              `(begin
+                 (define python-version ,version)
+                 (define python-executable ,executable)
+                 (define python-c-compiler ,c-compiler)
+                 (define python-libdir ,libdir)
+                 (define python-venv-dir ,venv-dir)
+                 (define python-venv-bin-dir ,venv-bin-dir)
+                 (define python-venv-lib-dir ,venv-lib-dir)
+                 (##meta-info ld-options ,ldflags)
+                 (##meta-info cc-options ,cflags))))
+  (pp xxx) xxx)))))))
+
+(find-python-and-create-venv-and-generate-meta-info)
+
+;;;----------------------------------------------------------------------------
+
+;; Check that Gambit has been compiled with thread support.
+
+(c-declare #<<end-of-c-declare
+
+#ifndef ___MULTIPLE_THREADED_VMS
+#error "Gambit was not configured with --enable-multiple-threaded-vms. Please upgrade."
+#endif
+
+end-of-c-declare
+)
 
 ;;;----------------------------------------------------------------------------
 
@@ -127,7 +284,7 @@ PyTypeObject *_SchemeObject_cls = NULL;
 #define DEBUG_LOWLEVEL_
 #define DEBUG_PYTHON_REFCNT_
 
-#if 1 || defined(DEBUG_PYTHON_REFCNT)
+#ifdef DEBUG_PYTHON_REFCNT
 
 // Taken from https://stackoverflow.com/a/46202119
 static void debug_print_repr(PyObject *obj) {
@@ -804,7 +961,8 @@ do { \
 end-of-c-declare
 )
 
-(##c-code "python_error_handler = ___ARG1;" python-error-handler)
+((c-lambda (scheme-object) void "python_error_handler = ___arg1;")
+ python-error-handler)
 
 (define-type python-exception
   id: A9EC1C11-A6D8-4357-99E6-655B75ADC09E
@@ -956,7 +1114,7 @@ end-of-c-declare
   (c-lambda (_PyObject*) nonnull-UTF-8-string
     "___return(___CAST(char*,___arg1->ob_type->tp_name));"))
 
-;; Use for debugging
+;; Useful for debugging
 (define _Py_REFCNT
   (c-lambda (PyObject*) ssize_t
     "___return(Py_REFCNT(___arg1));"))
@@ -1446,7 +1604,7 @@ ___return(dst);
 
 "))
 
-(define (procedure->SchemeProcedure proc)
+(define (procedure->PyObject*/function proc)
   (python-SchemeProcedure (object->SchemeObject proc)))
 
 (define (PyObject*/list->vector src)
@@ -1932,7 +2090,7 @@ ___return(dst);
                 (PyObject*-or-subtype?
                  (car (##foreign-tags src))))
            src)
-          ((procedure? src)             (procedure->SchemeProcedure src))
+          ((procedure? src)             (procedure->PyObject*/function src))
           (else
            (error "can't convert" src))))
 
@@ -2081,45 +2239,13 @@ return_with_check_PyObjectPtr(PyObject_CallFunctionObjArgs(___arg1, ___arg2, ___
 
 ;;;----------------------------------------------------------------------------
 
-
-
-
-
-
-
-
-
-
-
-
-
-;;;----------------------------------------------------------------------------
-
-;;; new stuff
+;; Foreign procedure call implementation.
 
 (c-declare #<<end-of-c-declare
 
 
-
 #include <stdio.h>
 #include <pthread.h>
-
-#if 0
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
-#endif
-
-
-
-void sleep_ms(int milliseconds) {
-
-  struct timespec t = {
-    (int)(milliseconds / 1000),
-    (milliseconds % 1000) * 1000000
-  };
-
-  while (nanosleep (&t , &t) < 0) ;
-}
 
 
 /* converters */
@@ -2182,7 +2308,6 @@ PyObject *convert_to_python(___SCMOBJ val) {
 }
 
 
-
 typedef struct fpc_state_struct
   {
     ___procedural_interrupt_header header; /* used as a procedural interrupt */
@@ -2192,7 +2317,6 @@ typedef struct fpc_state_struct
     ___MUTEX_DECL(wait_mut);               /* for waiting for peer's message */
     ___thread python_thread;               /* OS thread that runs Python code */
   } fpc_state;
-
 
 
 const char *python_code = "\
@@ -2286,8 +2410,6 @@ def set_global(k, v):\n\
 ";
 
 
-
-
 void python_thread_main(___thread *self) {
 
   /* TODO: add error checking */
@@ -2318,16 +2440,10 @@ ___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
     ___SCMOBJ scheme_fpc_state =
       ___EXT(___data_rc)(___CAST(void*,python_fpc_state));
 
-//    printf("scheme_fpc_state = %p\n", scheme_fpc_state);
-//    printf("python_fpc_state->pstate = %p\n", python_fpc_state->pstate);
-
     if (scheme_fpc_state == ___FAL) {
 
       ___processor_state ___ps = python_fpc_state->pstate; /* same as ___PSTATE */
       ___SCMOBJ python_fpc_state_scmobj;
-
-//      printf("___PSTATE = %p\n", ___PSTATE);
-//      printf("___ps = %p\n", ___ps);
 
       scheme_fpc_state = ___EXT(___make_vector)(___ps, 4, ___NUL);
 
@@ -2355,7 +2471,9 @@ ___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
 
       ___FIELD(scheme_fpc_state, 3) = python_fpc_state_scmobj;
 
-//      ___EXT(___release_scmobj)(python_fpc_state_scmobj);
+#if 0
+      ___EXT(___release_scmobj)(python_fpc_state_scmobj);
+#endif
     }
 
 #ifdef DEBUG_LOWLEVEL
@@ -2394,7 +2512,6 @@ fpc_state *alloc_python_fpc_state(___processor_state ___ps) {
 
   if (capsule == NULL) {
     printf("could not allocate capsule\n");
-    /* TODO: use ___release_rc */
     ___EXT(___release_rc)(python_fpc_state);
     exit(1); /* TODO: better error handling! */
   }
@@ -2503,7 +2620,6 @@ PyObject *sfpc_recv(___SCMOBJ scheme_fpc_state) {
 }
 
 
-
 static PyObject *pfpc_send(PyObject *self, PyObject *args) {
 
   PyObject *capsule;
@@ -2515,8 +2631,6 @@ static PyObject *pfpc_send(PyObject *self, PyObject *args) {
 
   fpc_state *python_fpc_state =
     ___CAST(fpc_state*, PyCapsule_GetPointer(capsule, NULL));
-
-//  PYOBJECTPTR_DECREF(capsule, "pfpc_send");
 
 #ifdef DEBUG_LOWLEVEL
   printf("pfpc_send() enter\n");
@@ -2559,8 +2673,6 @@ static PyObject *pfpc_recv(PyObject *self, PyObject *args) {
   fpc_state *python_fpc_state =
     ___CAST(fpc_state*, PyCapsule_GetPointer(capsule, NULL));
 
-//  PYOBJECTPTR_DECREF(capsule, "pfpc_recv");
-
 #ifdef DEBUG_LOWLEVEL
   printf("pfpc_recv() calling ___MUTEX_LOCK(python_fpc_state->wait_mut);\n");
 #endif
@@ -2600,28 +2712,6 @@ static PyObject *pfpc_free(PyObject *self, PyObject *args) {
 }
 
 
-___SCMOBJ ___thread_init_from_self
-   ___P((___thread *thread),
-        (thread)
-___thread *thread;)
-{
-#ifdef ___USE_POSIX_THREAD_SYSTEM
-
-  thread->thread_id = pthread_self ();
-
-#endif
-
-#ifdef ___USE_WIN32_THREAD_SYSTEM
-
-  thread->thread_handle = GetCurrentThread ();
-  thread->thread_id = GetCurrentThreadId ();
-
-#endif
-
-return ___FIX(___NO_ERR);
-//  return thread_init_common (thread);
-}
-
 static PyObject *pfpc_start_buddy(PyObject *self, PyObject *args) {
 
   ___processor_state ___ps =
@@ -2641,7 +2731,6 @@ static PyObject *pfpc_start_buddy(PyObject *self, PyObject *args) {
 
   ___EXT(___raise_procedural_interrupt_pstate)(___ps,
                                                ___CAST(void*,python_fpc_state));
-
 
 #ifdef DEBUG_LOWLEVEL
   printf("pfpc_start_buddy() exit\n");
@@ -2698,7 +2787,6 @@ ___BOOL initialize(void) {
 void finalize(void) {
   Py_Finalize();
 }
-
 
 
 end-of-c-declare
@@ -2784,7 +2872,6 @@ end-of-c-declare
 ;;                 (print "e=") (display-exception e)
                  #f)
                (lambda ()
-;;                 (pp '-----------)
                  (sfpc-send scheme-fpc-state (vector op-return (void))) ;; signal thread is started
                  (sfpc-loop scheme-fpc-state))))
             'buddy)))
@@ -2812,6 +2899,7 @@ end-of-c-declare
   (mutex-lock! (vector-ref scheme-fpc-state 2))
   ((c-lambda (scheme-object) PyObject*!own "sfpc_recv")
    scheme-fpc-state))
+
 #;
 (begin
   (define op-return "return")
@@ -2886,7 +2974,7 @@ end-of-c-declare
 
 (define (cleanup-fpc)
   (##tty-mode-reset)
-  (##c-code "exit(0);") ;; TODO: why does the below cause a segfault?
+  ((c-lambda () void "exit(0);")) ;; TODO: why does the below cause a segfault?
   (for-each
    cleanup-scheme-fpc-state
    (map car (table->list scheme-fpc-state-table)))
@@ -2937,10 +3025,18 @@ end-of-c-declare
 ;;   (for-each PyObject*-register-foreign-write-handler python-subtypes))
 
 (define (pip-install module)
-  (shell-command (string-append VENV-PATH "/bin/pip install " module)))
+  (shell-command
+   (string-append (path-expand "pip" python-venv-bin-dir)
+                  " install "
+                  module))
+  (void))
 
 (define (pip-uninstall module)
-  (shell-command (string-append VENV-PATH "/bin/pip uninstall " module)))
+  (shell-command
+   (string-append (path-expand "pip" python-venv-bin-dir)
+                  " uninstall "
+                  module))
+  (void))
 
 ;;;----------------------------------------------------------------------------
 
@@ -2948,73 +3044,17 @@ end-of-c-declare
 
 (setup-fpc)
 
-(define python-eval (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-eval)))
-(define python-exec (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-exec)))
+(define python-eval
+  (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-eval)))
+
+(define python-exec
+  (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-exec)))
+
 (define python-SchemeProcedure (python-eval "_SchemeProcedure"))
 
-(python-exec
- (string-append "__import__('sys').path.append('"
-                (path-expand (string-append VENV-PATH "/lib/python" PYVER "/site-packages"))
-                "')"))
+((python-eval "__import__('sys').path.append")
+ (path-expand "site-packages" python-venv-lib-dir))
 
 ;; (register-foreign-write-handlers)
 
-;; TODO:
-;; ratnums
-;; foreign-write-handlers
-
-;;;----------------------------------------------------------------------------
-
-;; test
-
-;; (println "(setup-fpc)")
-
-
-;; (python-exec "def pyfunc(x,y):\n for i in range(y*1000000):\n  pass\n return [x]*y\n")
-
-;; (python-exec "def pymap(f):\n return list(map(f, range(10)))\n")
-
-;; (python-exec "def pytest(f):\n return f(42)\n")
-
-;; (define pyfunc (python-eval "pyfunc"))
-;; (define pymap (python-eval "pymap"))
-;; (define pytest (python-eval "pytest"))
-;; (define python-print (python-eval "print"))
-
-;; (begin
-
-;; (define threads
-;;   (map (lambda (i)
-;;          (thread-start!
-;;           (make-thread
-;;            (lambda ()
-;;              (pp (pyfunc i i))))))
-;;        (iota 10)))
-;; (for-each thread-join! threads)
-;; )
-
-
-;; ;;(pp (pytest square)) ;;TODO: debug Python to Scheme calls
-
-
-;; (println "(cleanup-fpc)")
-;; (cleanup-fpc)
-
-;; #|
-
-;; Output when executed:
-
-;; (setup-fpc)
-;; ()
-;; (1)
-;; (2 2)
-;; (3 3 3)
-;; (5 5 5 5 5)
-;; (4 4 4 4)
-;; (6 6 6 6 6 6)
-;; (8 8 8 8 8 8 8 8)
-;; (7 7 7 7 7 7 7)
-;; (9 9 9 9 9 9 9 9 9)
-;; (cleanup-fpc)
-
-;; |#
+;;;============================================================================
