@@ -7,7 +7,7 @@
 
 ;;;============================================================================
 
-(##namespace ("github.com/gambit/python#"
+(##namespace ("github.com/udem-dlteam/python#"
 
 ;; Constants
 Py_eval_input

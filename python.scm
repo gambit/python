@@ -9,9 +9,9 @@
 
 ;;; Python FFI.
 
-(##supply-module github.com/gambit/python)
+(##supply-module github.com/udem-dlteam/python)
 
-(##namespace ("github.com/gambit/python#")) ;; in github.com/gambit/python#
+(##namespace ("github.com/udem-dlteam/python#")) ;; in github.com/udem-dlteam/python#
 
 (##include "~~lib/gambit/prim/prim#.scm")   ;; map fx+ to ##fx+, etc
 (##include "~~lib/_gambit#.scm")            ;; for macro-check-procedure,
