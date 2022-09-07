@@ -6,7 +6,7 @@
 
 ;;;============================================================================
 
-(import (github.com/udem-dlteam python))   (##add-exit-job! cleanup-fpc)
+(import (github.com/gambit/python))   (##add-exit-job! cleanup-fpc)
 
 ;;;----------------------------------------------------------------------------
 
@@ -105,9 +105,9 @@
   (test 'object->SchemeObject f)
   (test 'SchemeObject->object (lambda () (SchemeObject->object obj))))
 
-(let* ((f (lambda () (procedure->SchemeProcedure sqrt)))
+(let* ((f (lambda () (procedure->PyObject*/function sqrt)))
        (obj (f)))
-  (test 'procedure->SchemeProcedure f))
+  (test 'procedure->PyObject*/function f))
 
 (let* ((elem0 (exact-integer->PyObject*/int 0))
        (elem1 (exact-integer->PyObject*/int 1))

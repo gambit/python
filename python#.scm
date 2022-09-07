@@ -121,6 +121,7 @@ pip-install
 pip-uninstall
 python-eval
 python-exec
+cleanup-fpc
 
 scheme
 
