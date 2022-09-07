@@ -87,7 +87,7 @@ or use other packaging mechanisms if they wish.
 
 ## Examples
 
-The examples in [examples](examples/) can be run as follows:
+The [examples](examples/) can be run as follows:
 
 ``` sh
 gsi github.com/gambit/python/examples/EXAMPLE_NAME_WITHOUT_SCM
@@ -107,8 +107,13 @@ manually installed using `pip-install`.
 To test the module, run the following command:
 
 ``` sh
-gsi github.com/gambit/python/test/test
-gsi github.com/gambit/python/test/test-for-leaks
+gsi github.com/gambit/python/test
+```
+
+There is a specific test for memory leaks that you can run as:
+
+``` sh
+gsi github.com/gambit/python/test/leaks
 ```
 
 
