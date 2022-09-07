@@ -4,9 +4,10 @@
 This module is an interface to Python for Gambit Scheme. It wraps and exposes
 the low-level CPython C API using the Gambit Scheme C FFI managing the CPython
 GIL and reference counting. It implements a Foreign Procedure Call mechanism
-which bridges the Gambit and CPython threading models. This module allows the
-use of packages from the Python Package Index's (PyPI) repository of almost
-400,000 packages.
+which bridges the Gambit and CPython threading models. It also offers a
+convenient syntactic interface to write Python expressions in Scheme. This
+module allows the use of packages from the Python Package Index's (PyPI)
+repository of almost 400,000 packages.
 
 For more details, see the preprint for our Scheme Workshop 2022 article here: [A
 Foreign Function Interface between Gambit Scheme and
