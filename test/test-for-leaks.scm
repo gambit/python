@@ -6,7 +6,7 @@
 
 ;;;============================================================================
 
-(import (github.com/udem-dlteam python))   (##add-exit-job! cleanup-fpc)
+(import (github.com/gambit/python))   (##add-exit-job! cleanup-fpc)
 
 ;;;----------------------------------------------------------------------------
 
