@@ -90,7 +90,13 @@ or use other packaging mechanisms if they wish.
 The examples in [examples](examples/) can be run as follows:
 
 ``` sh
-gsi ~~userlib/github.com/gambit/python/@/examples/EXAMPLE.scm
+gsi github.com/gambit/python/examples/EXAMPLE_NAME_WITHOUT_SCM
+```
+
+So to run the `requests` example, you would do:
+
+``` sh
+gsi github.com/gambit/python/examples/requests
 ```
 
 Some examples require packages to be installed from the PyPI. These have to be
@@ -98,14 +104,12 @@ manually installed using `pip-install`.
 
 ## Testing
 
-To tet the module, this, run the following command:
+To test the module, run the following command:
 
 ``` sh
-gsi ~~userlib/github.com/gambit/python/@/test/test.scm
+gsi github.com/gambit/python/test/test
+gsi github.com/gambit/python/test/test-for-leaks
 ```
-
-You can check for memory leaks by running the same above command on the
-`test-for-leaks.scm` file.
 
 
 ## License and copyright
