@@ -62,6 +62,16 @@
   (test-equal 11 (table-ref t "a" #f))
   (test-equal 22 (table-ref t "b" #f)))
 
+;; Procedure conversions
+(let ((p (python-eval "foreign(lambda x: x)")))
+  \s=`p
+  (test-assert \s==`p))
+
+;; *args and **kwargs
+(let ((p (python-eval "lambda x, *args, **kwargs: args if x else kwargs")))
+  (test-equal #(1 2 3) (p #t 1 2 3))
+  (test-equal (list->table '(("k" . 0) ("t" . 1))) (p #f k: 0 t: 1)))
+
 ;;;----------------------------------------------------------------------------
 
 ;; test basic Scheme to Python conversions
