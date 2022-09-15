@@ -2187,11 +2187,11 @@ ___return(dst);
 ;; TODO: Handle **kwargs in Python call
 (define (PyObject_CallFunctionObjArgs* callable args)
   (if (not (pair? args))
-      (PyObject_CallNoArgs callable)
+      (PyObject_CallFunctionObjArgs0 callable)
       (let ((arg1 (car args))
             (rest (cdr args)))
         (if (not (pair? rest))
-            (PyObject_CallOneArg callable arg1)
+            (PyObject_CallFunctionObjArgs1 callable arg1)
             (let ((arg2 (car rest))
                   (rest (cdr rest)))
               (if (not (pair? rest))
