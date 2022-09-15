@@ -1611,7 +1611,7 @@ ___return(dst);
 "))
 
 (define (procedure->PyObject*/function proc)
-  (python-SchemeProcedure (object->SchemeObject proc)))
+  (PyCell_Get (python-SchemeProcedure (object->SchemeObject proc))))
 
 (define (PyObject*/list->vector src)
   (or ((c-lambda (PyObject*/list) scheme-object "
