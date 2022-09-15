@@ -1600,6 +1600,8 @@ GIL_ACQUIRE();
 PyObject *capsule = PyObject_GetAttrString(src, \"obj_capsule\");
 void *rc = PyCapsule_GetPointer(capsule, NULL);
 
+PYOBJECTPTR_DECREF(capsule, \"SchemeObject->object\");
+
 dst = ___EXT(___data_rc)(rc);
 
 GIL_RELEASE();
