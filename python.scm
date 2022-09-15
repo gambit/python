@@ -3056,7 +3056,10 @@ end-of-c-declare
 (define python-exec
   (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-exec)))
 
-(define python-SchemeProcedure (python-eval "_SchemeProcedure"))
+(define python-SchemeProcedure
+  (let ((_SchemeProcedure (python-eval "foreign(_SchemeProcedure)")))
+    (lambda (obj)
+      (PyObject_CallFunctionObjArgs1 _SchemeProcedure (object->SchemeObject obj)))))
 
 ((python-eval "__import__('sys').path.append")
  (path-expand "site-packages" python-venv-lib-dir))
