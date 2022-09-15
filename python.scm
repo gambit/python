@@ -1600,6 +1600,8 @@ GIL_ACQUIRE();
 PyObject *capsule = PyObject_GetAttrString(src, \"obj_capsule\");
 void *rc = PyCapsule_GetPointer(capsule, NULL);
 
+PYOBJECTPTR_DECREF(capsule, \"SchemeObject->object\");
+
 dst = ___EXT(___data_rc)(rc);
 
 GIL_RELEASE();
@@ -2006,10 +2008,10 @@ ___return(dst);
                               (cons (keyword->string arg) kw-keys)
                               (cons (car rest) kw-vals))
                         (error "Keyword argument has no value" args))
-                    (loop (cdr args) (cons (car args) *args) kw-keys kw-vals))
-                (if (null? kw-keys)
-                    (sfpc-call callable (list->vector (reverse *args)))
-                    (sfpc-call-with-kw callable (list->vector (reverse *args)) kw-keys kw-vals))))))
+                    (loop rest (cons arg *args) kw-keys kw-vals)))
+              (if (null? kw-keys)
+                  (sfpc-call callable (list->vector (reverse *args)))
+                  (sfpc-call-with-kw callable (list->vector (reverse *args)) kw-keys kw-vals)))))
 
       (cond ((eq? arg1 (macro-absent-obj))
              (sfpc-call callable '#()))
@@ -2185,11 +2187,11 @@ ___return(dst);
 ;; TODO: Handle **kwargs in Python call
 (define (PyObject_CallFunctionObjArgs* callable args)
   (if (not (pair? args))
-      (PyObject_CallNoArgs callable)
+      (PyObject_CallFunctionObjArgs0 callable)
       (let ((arg1 (car args))
             (rest (cdr args)))
         (if (not (pair? rest))
-            (PyObject_CallOneArg callable arg1)
+            (PyObject_CallFunctionObjArgs1 callable arg1)
             (let ((arg2 (car rest))
                   (rest (cdr rest)))
               (if (not (pair? rest))
@@ -3054,7 +3056,10 @@ end-of-c-declare
 (define python-exec
   (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-exec)))
 
-(define python-SchemeProcedure (python-eval "_SchemeProcedure"))
+(define python-SchemeProcedure
+  (let ((_SchemeProcedure (python-eval "foreign(_SchemeProcedure)")))
+    (lambda (obj)
+      (PyObject_CallFunctionObjArgs1 _SchemeProcedure (object->SchemeObject obj)))))
 
 ((python-eval "__import__('sys').path.append")
  (path-expand "site-packages" python-venv-lib-dir))
