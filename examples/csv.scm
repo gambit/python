@@ -17,6 +17,6 @@
      ;; Iterate using __next__() until StopIteration is raised
      (lambda () (loop (cons \reader.__next__() acc))))))
 
-(pretty-print (read-csv "./data.csv"))
+(pretty-print (read-csv (path-expand "~~userlib/github.com/gambit/python/@/examples/data.csv")))
 
 ;; (("A" "B" "C") ("1" "2" "3"))
