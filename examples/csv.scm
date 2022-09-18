@@ -3,20 +3,26 @@
 
 \import csv
 
+(define python-open \open)
+(define csv.reader \csv.reader)
+
 (define (read-csv path)
-  \f=open(`path)
-  \reader=csv.reader(f)
-  (let loop ((acc '()))
+  (let* ((f (python-open path))
+         (reader (csv.reader f))
+         (acc '()))
     (with-exception-catcher
      (lambda (e)
        ;; The exception will be a pair (PyObject* . repr(PyObject*))
-       \f.close()
+       \(`f).close()
        (if \isinstance(`(car e), StopIteration)
            (reverse acc) ;; Return the result
-           (write e)))   ;; Propagate the exception
-     ;; Iterate using __next__() until StopIteration is raised
-     (lambda () (loop (cons \reader.__next__() acc))))))
+           (raise e)))   ;; Propagate the exception
+     (lambda ()
+       (let loop ()
+         ;; Iterate using __next__() until StopIteration is raised
+         (set! acc (cons \(`reader).__next__() acc))
+         (loop))))))
 
-(pretty-print (read-csv (path-expand "~~userlib/github.com/gambit/python/@/examples/data.csv")))
+(path-expand "data.csv" (path-directory (this-source-file)))
 
 ;; (("A" "B" "C") ("1" "2" "3"))
