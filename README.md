@@ -38,12 +38,20 @@ This module has a few mandatory requirements:
   might work).
 
 ### Installation
-You can install the module either by importing it `(import
-(github.com/gambit/python))` or directly through gsi:
+You can also install and compile the program at the command-line as such:
 
 ``` sh
 gsi -install github.com/gambit/python
+gsc github.com/gambit/python
 ```
+
+You can also download and compile the module lazily by importing it from within
+`gsi` or any program compiled with the C backend:
+
+``` scheme
+(import (github.com/gambit/python))
+```
+
 
 Gambit will download and compile the code. During compilation, the module will
 perform an automatic discovery of the installed CPython executable. Various C
