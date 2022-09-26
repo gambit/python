@@ -38,17 +38,24 @@ This module has a few mandatory requirements:
   might work).
 
 ### Installation
-You can install the module either by importing it `(import
-(github.com/gambit/python))` or directly through gsi:
+You can install and compile the program at the command-line as such:
 
 ``` sh
 gsi -install github.com/gambit/python
+gsc github.com/gambit/python
 ```
 
-Gambit will download and compile the code. During compilation, the module will
-perform an automatic discovery of the installed CPython executable. Various C
-compiler options will be determined by introspection. This module will create a
-`virtualenv` to manage its packages.
+or you can download and compile the module lazily by importing it from within
+`gsi` or any program compiled with the C backend:
+
+``` scheme
+(import (github.com/gambit/python))
+```
+
+In both cases, Gambit will download and compile the code. During compilation,
+the module will perform an automatic discovery of the installed CPython
+executable. Various C compiler options will be determined by introspection. This
+module will create a `virtualenv` to manage its packages.
 
 Users can configure the compilation with environment variables:
 
