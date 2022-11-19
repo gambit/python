@@ -2385,6 +2385,7 @@ def _pfpc_loop(fpc_state):\n\
     else:\n\
       message = (_op_error, op)\n\
     _pfpc_send(fpc_state, message)\n\
+    message = None\n\
 \n\
 def _pfpc_call(fn, args, kw_keys, kw_vals):\n\
   fpc_state = _pfpc_get_fpc_state()\n\
@@ -2619,7 +2620,7 @@ PyObject *sfpc_recv(___SCMOBJ scheme_fpc_state) {
     ___CAST(fpc_state*,___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR));
 
 #ifdef DEBUG_LOWLEVEL
-  printf("sfpc_recv() returning python_fpc_state->message\n");
+  PYOBJECTPTR_REFCNT_SHOW(python_fpc_state->message, "sfpc_recv() returning python_fpc_state->message");
 #endif
 
   return python_fpc_state->message;
@@ -2688,7 +2689,7 @@ static PyObject *pfpc_recv(PyObject *self, PyObject *args) {
   Py_END_ALLOW_THREADS
 
 #ifdef DEBUG_LOWLEVEL
-  printf("pfpc_recv() returning python_fpc_state->message\n");
+  PYOBJECTPTR_REFCNT_SHOW(python_fpc_state->message, "pfpc_recv() returning python_fpc_state->message");
 #endif
 
   return python_fpc_state->message;
@@ -2903,7 +2904,7 @@ end-of-c-declare
 (define (sfpc-recv scheme-fpc-state)
 ;;  (pp (list 'sfpc-recv scheme-fpc-state))
   (mutex-lock! (vector-ref scheme-fpc-state 2))
-  ((c-lambda (scheme-object) PyObject*!own "sfpc_recv")
+  ((c-lambda (scheme-object) PyObject* "sfpc_recv")
    scheme-fpc-state))
 
 #;
