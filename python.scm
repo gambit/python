@@ -1927,33 +1927,28 @@ ___return(dst);
 (define (PyObject*->object src)
 
   (define (conv src)
-;;    (let ((converter (table-ref PyObject*-converters (PyObject*-type-name src) #f)))
-;;      (if converter
-;;          (converter src)
-          (case (car (##foreign-tags src))
-            ((PyObject*/None)                        (PyObject*/None->void src))
-            ((PyObject*/bool)                        (PyObject*/bool->boolean src))
-            ((PyObject*/int)                         (PyObject*/int->exact-integer src))
-            ((PyObject*/float)                       (PyObject*/float->flonum src))
-            ((PyObject*/complex)                     (PyObject*/complex->cpxnum src))
-            ((PyObject*/Fraction)                    (PyObject*/Fraction->ratnum src))
-            ((PyObject*/str)                         (PyObject*/str->string src))
-            ((PyObject*/bytes)                       (PyObject*/bytes->u8vector src))
-            ((PyObject*/bytearray)                   (PyObject*/bytearray->u8vector src))
-            ((PyObject*/list)                        (list-conv src))
-            ((PyObject*/tuple)                       (vector-conv src))
-            ((PyObject*/dict)                        (table-conv src))
-            ((PyObject*/function
-              PyObject*/builtin_function_or_method
-              PyObject*/method
-              PyObject*/method_descriptor)           (procedure-conv src))
-            ((PyObject*/cell)                        (PyCell_Get src))
-            (else
-             (cond ((= 1 (PyCallable_Check src))     (procedure-conv src))
-                   ((SchemeObject? src)              (SchemeObject->object src))
-                   (else                             src))))
-;;))
-)
+    (case (car (##foreign-tags src))
+      ((PyObject*/None)                        (PyObject*/None->void src))
+      ((PyObject*/bool)                        (PyObject*/bool->boolean src))
+      ((PyObject*/int)                         (PyObject*/int->exact-integer src))
+      ((PyObject*/float)                       (PyObject*/float->flonum src))
+      ((PyObject*/complex)                     (PyObject*/complex->cpxnum src))
+      ((PyObject*/Fraction)                    (PyObject*/Fraction->ratnum src))
+      ((PyObject*/str)                         (PyObject*/str->string src))
+      ((PyObject*/bytes)                       (PyObject*/bytes->u8vector src))
+      ((PyObject*/bytearray)                   (PyObject*/bytearray->u8vector src))
+      ((PyObject*/list)                        (list-conv src))
+      ((PyObject*/tuple)                       (vector-conv src))
+      ((PyObject*/dict)                        (table-conv src))
+      ((PyObject*/function
+        PyObject*/builtin_function_or_method
+        PyObject*/method
+        PyObject*/method_descriptor)           (procedure-conv src))
+      ((PyObject*/cell)                        (PyCell_Get src))
+      (else
+       (cond ((= 1 (PyCallable_Check src))     (procedure-conv src))
+             ((SchemeObject? src)              (SchemeObject->object src))
+             (else                             src)))))
 
   (define (list-conv src)
     (let* ((vect (PyObject*/list->vector src))
