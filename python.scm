@@ -3052,10 +3052,12 @@ end-of-c-declare
 (define python-exec
   (sfpc-send-recv (get-scheme-fpc-state!) (vector op-get-exec)))
 
+;; Create a _SchemeProcedure instance.
+;; obj is a SchemeObject that contains a pointer to a Scheme function.
 (define python-SchemeProcedure
   (let ((_SchemeProcedure (python-eval "foreign(_SchemeProcedure)")))
     (lambda (obj)
-      (PyObject_CallFunctionObjArgs1 _SchemeProcedure (object->SchemeObject obj)))))
+      (PyObject_CallFunctionObjArgs1 _SchemeProcedure obj))))
 
 ((python-eval "__import__('sys').path.append")
  (path-expand "site-packages" python-venv-lib-dir))
