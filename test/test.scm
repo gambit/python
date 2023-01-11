@@ -66,6 +66,10 @@
 (let ((p (python-eval "foreign(lambda x: x)")))
   \s=`p
   (test-assert \s==`p))
+(let ((p (lambda (x) x)))
+  \s=`(scheme p)
+  (test-assert (eq? \s p)))
+(test-equal (cos 0) \(`cos)(0))
 
 ;; *args and **kwargs
 (let ((p (python-eval "lambda x, *args, **kwargs: args if x else kwargs")))
