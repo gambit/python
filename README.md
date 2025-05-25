@@ -30,8 +30,10 @@ CPython](https://andykeep.com/SchemeWorkshop2022/scheme2022-final22.pdf).
 ### Requirements
 This module has a few mandatory requirements:
 
-- You must have a recent version of Gambit compiled with the
-  `--enable-multiple-threaded-vms` option.
+- You must have a recent version of Gambit compiled with thread support
+  either using the configure option `--enable-thread-system`, which is
+  enabled by default in recent versions of Gambit, or with the configure
+  option `--enable-multiple-threaded-vms`.
 - You must have a dynamically linked version of CPython >= 3.7 installed. This
   module will link against the CPython shared library.
 - A Windows, Linux or macOS operating system (other OSes have not been tested but

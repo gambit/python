@@ -2,7 +2,7 @@
 
 ;;; File: "python.scm"
 
-;;; Copyright (c) 2020-2022 by Marc Feeley, All Rights Reserved.
+;;; Copyright (c) 2020-2025 by Marc Feeley, All Rights Reserved.
 ;;; Copyright (c) 2020-2022 by Marc-André Bélanger, All Rights Reserved.
 
 ;;;============================================================================
@@ -260,13 +260,22 @@
 
 ;;;----------------------------------------------------------------------------
 
-;; Check that Gambit has been compiled with thread support.
-
 (c-declare #<<end-of-c-declare
 
-#ifndef ___MULTIPLE_THREADED_VMS
-#error "Gambit was not configured with --enable-multiple-threaded-vms. Please upgrade."
+
+// Check that Gambit has been compiled with thread support.
+
+#ifdef ___USE_NO_THREAD_SYSTEM
+#error "Gambit was not configured with --enable-thread-system. Please upgrade."
 #endif
+
+
+// For backward compatibility when using older versions of Gambit.
+
+#ifndef ___FOREIGN_PTR_FIELD
+#define ___FOREIGN_PTR_FIELD(foreign) ___FIELD(foreign, ___FOREIGN_PTR)
+#endif
+
 
 end-of-c-declare
 )
@@ -285,8 +294,8 @@ typedef PyObject *PyObjectPtr;
 PyTypeObject *Fraction_cls = NULL;
 PyTypeObject *_SchemeObject_cls = NULL;
 
-#define DEBUG_LOWLEVEL_
-#define DEBUG_PYTHON_REFCNT_
+#define DEBUG_LOWLEVEL_not
+#define DEBUG_PYTHON_REFCNT_not
 
 #ifdef DEBUG_PYTHON_REFCNT
 
@@ -1095,11 +1104,11 @@ end-of-c-declare
 
 (def-api PyObject_Repr            PyObject*/str    (PyObject*))
 
-(def-api Py_SetPath               void             (nonnull-wchar_t-string))
-(def-api Py_SetProgramName        void             (nonnull-wchar_t-string))
-(def-api PySys_SetArgv            void             (int nonnull-wchar_t-string-list))
-(def-api PySys_SetArgvEx          void             (int nonnull-wchar_t-string-list int))
-(def-api Py_SetPythonHome         void             (nonnull-wchar_t-string))
+;;(def-api Py_SetPath               void             (nonnull-wchar_t-string))
+;;(def-api Py_SetProgramName        void             (nonnull-wchar_t-string))
+;;(def-api PySys_SetArgv            void             (int nonnull-wchar_t-string-list))
+;;(def-api PySys_SetArgvEx          void             (int nonnull-wchar_t-string-list int))
+;;(def-api Py_SetPythonHome         void             (nonnull-wchar_t-string))
 
 (def-api PyCallable_Check         int              (PyObject*))
 
@@ -1230,7 +1239,11 @@ if (!overflow) {
 #else
                             0
 #endif
-                            , 1)) {
+                            , 1
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 13
+                            , 0
+#endif
+                           )) {
       dst = ___FAL;
     }
   }
@@ -1277,7 +1290,8 @@ if (___FIXNUMP(src)) {
 #endif
 
 #ifdef ___BIG_ENDIAN
-  /* TODO: use _PyLong_FromByteArray(...) after copying bignum  */
+  printf(\"conversion from big-endian bignum to Python int is not yet supported\\n\");
+  exit(1); /* TODO: better error handling! */
 #endif
 }
 
@@ -1405,8 +1419,8 @@ if (PYOBJECTPTR_to_SCMOBJ(num, &num_scmobj, ___RETURN_POS)
       dst = ___FAL;
     else
       {
-        ___FIELD(dst, 0) = num_scmobj;
-        ___FIELD(dst, 1) = den_scmobj;
+        ___VECTORELEM(dst, 0) = num_scmobj;
+        ___VECTORELEM(dst, 1) = den_scmobj;
         ___EXT(___release_scmobj) (dst);
       }
     ___EXT(___release_scmobj) (den_scmobj);
@@ -1421,12 +1435,8 @@ ___return(dst);
 ")
           src)))
     (if dst
-        (begin
-          (vector-set! dst 0 (PyObject*->object (vector-ref dst 0)))
-          (vector-set! dst 1 (PyObject*->object (vector-ref dst 1)))
-          (if (eqv? (vector-ref dst 1) 1)
-              (vector-ref dst 0)
-              (##subtype-set! dst 2))) ;; ratnum subtype = 2
+        (##/2 (PyObject*->object (vector-ref dst 0))
+              (PyObject*->object (vector-ref dst 1)))
         (error "PyObject*/Fraction->ratnum conversion error"))))
 
 (define ints->PyObject*/Fraction
@@ -2246,7 +2256,6 @@ return_with_check_PyObjectPtr(PyObject_CallFunctionObjArgs(___arg1, ___arg2, ___
 
 
 #include <stdio.h>
-#include <pthread.h>
 
 
 /* converters */
@@ -2265,7 +2274,7 @@ ___SCMOBJ convert_from_python(PyObject *val) {
 
   if (err != ___FIX(___NO_ERR)) {
     printf("could not convert PyObject* to SCMOBJ\n");
-    exit(1);
+    exit(1); /* TODO: better error handling! */
   }
 
 #ifdef DEBUG_LOWLEVEL
@@ -2292,7 +2301,7 @@ PyObject *convert_to_python(___SCMOBJ val) {
 
   if (err != ___FIX(___NO_ERR)) {
     printf("could not convert SCMOBJ to PyObject*\n");
-    exit(1);
+    exit(1); /* TODO: better error handling! */
   }
 
   result = ptr;
@@ -2423,7 +2432,7 @@ void python_thread_main(___thread *self) {
   PyObject *m = PyImport_AddModule("__main__");
   PyObject *v = PyObject_GetAttrString(m, "_pfpc_start");
 
-  PyObject_CallOneArg(v, python_fpc_state->capsule); /* call _pfpc_start */
+  PyObject_CallFunctionObjArgs(v, python_fpc_state->capsule, NULL); /* call _pfpc_start */
 
   GIL_RELEASE();
 }
@@ -2451,14 +2460,14 @@ ___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
 
       if (___FIXNUMP(scheme_fpc_state)) {
         printf("heap overflow\n");
-        exit(1);
+        exit(1); /* TODO: better error handling! */
       }
 
       ___EXT(___set_data_rc)(python_fpc_state, scheme_fpc_state);
 
       ___EXT(___register_rc)(___PSP python_fpc_state);
 
-      ___FIELD(scheme_fpc_state, 1) = ___GLO__23__23_start_2d_buddy;
+      ___VECTORELEM(scheme_fpc_state, 1) = ___GLO__23__23_start_2d_buddy;
 
       if (___EXT(___POINTER_to_SCMOBJ)(___ps,
                                        ___CAST(void*,python_fpc_state),
@@ -2468,10 +2477,10 @@ ___SCMOBJ procedural_interrupt_execute_fn(void *self, ___SCMOBJ op) {
                                        ___RETURN_POS)
           != ___FIX(___NO_ERR)) {
         printf("could not convert python_fpc_state to foreign\n");
-        exit(1);
+        exit(1); /* TODO: better error handling! */
       }
 
-      ___FIELD(scheme_fpc_state, 3) = python_fpc_state_scmobj;
+      ___VECTORELEM(scheme_fpc_state, 3) = python_fpc_state_scmobj;
 
 #if 0
       ___EXT(___release_scmobj)(python_fpc_state_scmobj);
@@ -2510,7 +2519,11 @@ fpc_state *alloc_python_fpc_state(___processor_state ___ps) {
 
   python_fpc_state->pstate = ___ps;
 
+  GIL_ACQUIRE();
+
   capsule = PyCapsule_New(python_fpc_state, NULL, NULL);
+
+  GIL_RELEASE();
 
   if (capsule == NULL) {
     printf("could not allocate capsule\n");
@@ -2545,7 +2558,7 @@ void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 
   python_fpc_state = alloc_python_fpc_state(___PSTATE);
 
-  ___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR) = ___CAST(___WORD, python_fpc_state);
+  ___FOREIGN_PTR_FIELD(___VECTORELEM(scheme_fpc_state, 3)) = ___CAST(___WORD, python_fpc_state);
 
   ___EXT(___set_data_rc)(python_fpc_state, scheme_fpc_state);
 
@@ -2557,7 +2570,7 @@ void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 
   if (___EXT(___thread_create)(&python_fpc_state->python_thread)
       != ___FIX(___NO_ERR)) {
-    printf("can't create Python thread (was Gambit configured with --enable-multiple-threaded-vms?)\n");
+    printf("can't create Python thread (was Gambit configured with --enable-thread-system?)\n");
     exit(1); /* TODO: better error handling! */
   }
 
@@ -2570,7 +2583,7 @@ void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 void cleanup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 
   fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR));
+    ___CAST(fpc_state*,___FOREIGN_PTR_FIELD(___VECTORELEM(scheme_fpc_state, 3)));
 
 #ifdef DEBUG_LOWLEVEL
   printf("cleanup_python_fpc_state() enter\n");
@@ -2593,7 +2606,7 @@ void sfpc_send(___SCMOBJ scheme_fpc_state, PyObject *message) {
   PYOBJECTPTR_INCREF(message, "sfpc_send");
 
   fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR));
+    ___CAST(fpc_state*,___FOREIGN_PTR_FIELD(___VECTORELEM(scheme_fpc_state, 3)));
 
 #ifdef DEBUG_LOWLEVEL
   printf("sfpc_send() setting python_fpc_state->message\n");
@@ -2612,7 +2625,7 @@ void sfpc_send(___SCMOBJ scheme_fpc_state, PyObject *message) {
 PyObject *sfpc_recv(___SCMOBJ scheme_fpc_state) {
 
   fpc_state *python_fpc_state =
-    ___CAST(fpc_state*,___FIELD(___FIELD(scheme_fpc_state, 3),___FOREIGN_PTR));
+    ___CAST(fpc_state*,___FOREIGN_PTR_FIELD(___VECTORELEM(scheme_fpc_state, 3)));
 
 #ifdef DEBUG_LOWLEVEL
   PYOBJECTPTR_REFCNT_SHOW(python_fpc_state->message, "sfpc_recv() returning python_fpc_state->message");
@@ -2826,7 +2839,7 @@ end-of-c-declare
 
 (define (make-null-fpc_state*)
   (let ((x ((c-lambda () fpc_state* "___return(___CAST(void*,1));"))))
-    ((c-lambda (scheme-object) void "___FIELD(___ARG1,___FOREIGN_PTR) = ___CAST(___WORD,NULL);") x)
+    ((c-lambda (scheme-object) void "___FOREIGN_PTR_FIELD(___ARG1) = ___CAST(___WORD,NULL);") x)
     x))
 
 (define scheme-fpc-state-table #f)

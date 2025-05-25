@@ -2,7 +2,7 @@
 
 ;;; File: "python#.scm"
 
-;;; Copyright (c) 2020-2022 by Marc Feeley, All Rights Reserved.
+;;; Copyright (c) 2020-2025 by Marc Feeley, All Rights Reserved.
 ;;; Copyright (c) 2020-2022 by Marc-André Bélanger, All Rights Reserved.
 
 ;;;============================================================================
@@ -17,13 +17,13 @@ Py_single_input
 ;; Initialization, Finalization, and Threads
 Py_Initialize
 Py_Finalize
-Py_SetPath
-Py_SetProgramName
-Py_SetPythonHome
 
-;; PySys
-PySys_SetArgv
-PySys_SetArgvEx
+;; These are no longer available:
+;;   Py_SetPath
+;;   Py_SetProgramName
+;;   Py_SetPythonHome
+;;   PySys_SetArgv
+;;   PySys_SetArgvEx
 
 ;; PyRun_*
 PyRun_SimpleString
