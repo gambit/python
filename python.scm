@@ -23,7 +23,7 @@
 (declare (not safe))          ;; claim code has no type errors
 (declare (block))             ;; claim no global is assigned
 
-(##namespace (""
+(##namespace ("" pp
               current-thread make-thread thread-start! thread-sleep!
               make-mutex mutex-lock! mutex-unlock!))
 
@@ -2570,7 +2570,7 @@ void setup_python_fpc_state(___SCMOBJ scheme_fpc_state) {
 
   if (___EXT(___thread_create)(&python_fpc_state->python_thread)
       != ___FIX(___NO_ERR)) {
-    printf("can't create Python thread (was Gambit configured with --enable-thread-system?)\n");
+    printf("can't create Python thread\n");
     exit(1); /* TODO: better error handling! */
   }
 

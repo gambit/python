@@ -131,6 +131,6 @@ gsi github.com/gambit/python/test/leaks
 This software is distributed under the same terms as
 [Gambit](https://github.com/gambit/gambit).
 
-&copy; Marc Feeley 2021-2022
+&copy; Marc Feeley 2021-2025
 
-&copy; Marc-André Bélanger 2021-2022
+&copy; Marc-André Bélanger 2021-2025
