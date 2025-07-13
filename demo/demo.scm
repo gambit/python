@@ -2,8 +2,8 @@
 
 (define-library (github.com/gambit/python demo)
 
-  (import (..))          ;; relative import of python (preserves the version)
-  (import (gambit))      ;; for lambda, this-source-file, etc
+  (import (..)) ;; relative import of python (preserves the version)
+  (import (except (gambit) six.infix)) ;; for lambda, this-source-file, etc
   (import (_six python)) ;; for \... syntax
 
   (begin
